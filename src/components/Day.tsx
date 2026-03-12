@@ -161,6 +161,7 @@ const Day: React.FC<DayProps> = ({
           backgroundColor={getBaseBackgroundColor()}
           hoverBackgroundColor={UI_COLORS.background.quaternary}
           overflowDirection={customTextOverflow}
+          startEditing={isCreatingCustomText && !customText.trim()}
         />
       ) : (
         <button

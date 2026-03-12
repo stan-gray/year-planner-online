@@ -7,6 +7,7 @@ interface CustomTextProps {
   backgroundColor: string
   hoverBackgroundColor: string
   overflowDirection?: "overflow-x" | "overflow-y" | "no-overflow"
+  startEditing?: boolean
 }
 
 const CustomText: React.FC<CustomTextProps> = ({
@@ -15,6 +16,7 @@ const CustomText: React.FC<CustomTextProps> = ({
   backgroundColor,
   hoverBackgroundColor,
   overflowDirection = "overflow-x",
+  startEditing = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(text)
@@ -23,6 +25,12 @@ const CustomText: React.FC<CustomTextProps> = ({
   useEffect(() => {
     setDraft(text)
   }, [text])
+
+  useEffect(() => {
+    if (startEditing) {
+      setIsEditing(true)
+    }
+  }, [startEditing])
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -76,7 +84,7 @@ const CustomText: React.FC<CustomTextProps> = ({
     }
   }
 
-  if (!text && !isEditing) return null
+  if (!text && !isEditing && !startEditing) return null
 
   if (isEditing) {
     return (

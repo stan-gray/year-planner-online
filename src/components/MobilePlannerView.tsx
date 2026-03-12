@@ -251,7 +251,7 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
                 type="button"
                 className={`mobile-day-cell${isToday(day) ? " today" : ""}${isSameDay(activeDate || new Date(0), day) ? " selected" : ""}`}
                 style={markerStyle}
-                onClick={() => openDaySheet(day)}
+                onClick={() => openDaySheet(day, { focusNote: true })}
               >
                 <span className="mobile-day-number">{day.getDate()}</span>
                 {hasNote ? <span className="mobile-day-note-dot" /> : null}
