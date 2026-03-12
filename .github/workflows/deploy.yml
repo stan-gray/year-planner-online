@@ -41,6 +41,7 @@ jobs:
         run: npm run build
         env:
           CI: true
+          PUBLIC_URL: /year-planner-online
         # working-directory: ./your-app   # keep in sync with step above
 
       - name: Setup Pages

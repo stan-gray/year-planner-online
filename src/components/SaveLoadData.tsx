@@ -1,48 +1,32 @@
-import React, { useRef } from "react"
+import React, { useMemo, useRef, useState } from "react"
+import { formatDistanceToNow } from "date-fns"
 import { useCalendar } from "../contexts/CalendarContext"
-import { UI_COLORS } from "../utils/colors"
 
 const SaveLoadData: React.FC = () => {
-  const {
-    selectedYear,
-    dateCells,
-    selectedColorTexture,
-    selectedView,
-    setDateCells,
-    setSelectedYear,
-    setSelectedColorTexture,
-    setSelectedView,
-  } = useCalendar()
-
+  const { exportPlannerData, importPlannerData, saveSnapshots, createSnapshot, restoreSnapshot, resetPlanner, plannerData } =
+    useCalendar()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [statusMessage, setStatusMessage] = useState<string>("")
 
-  const handleSaveData = () => {
-    const dataToSave = {
-      selectedYear,
-      dateCells: Object.fromEntries(dateCells),
-      selectedColorTexture,
-      selectedView,
-      exportDate: new Date().toISOString(),
-      version: "2.0",
-    }
+  const storageSummary = useMemo(
+    () =>
+      plannerData.updatedAt
+        ? `Autosaved in this browser ${formatDistanceToNow(new Date(plannerData.updatedAt), { addSuffix: true })}.`
+        : "Autosaved in this browser.",
+    [plannerData.updatedAt]
+  )
 
-    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], {
-      type: "application/json",
-    })
+  const handleDownload = () => {
+    const blob = new Blob([exportPlannerData()], { type: "application/json" })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `year-planner-data-${new Date().toISOString().split("T")[0]}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = `year-planner-${plannerData.selectedYear}-${new Date().toISOString().split("T")[0]}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
     URL.revokeObjectURL(url)
-  }
-
-  const handleLoadData = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click()
-    }
+    setStatusMessage("Downloaded a full planner backup.")
   }
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,190 +34,89 @@ const SaveLoadData: React.FC = () => {
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const loadedData = JSON.parse(e.target?.result as string)
-
-        if (!loadedData || typeof loadedData !== "object") {
-          alert("Invalid data file format")
-          return
-        }
-
-        if (loadedData.dateCells && typeof loadedData.dateCells === "object") {
-          const newDateCells = new Map(dateCells)
-
-          Object.entries(loadedData.dateCells).forEach(([dateKey, cellData]) => {
-            const existing = newDateCells.get(dateKey) || {}
-            newDateCells.set(dateKey, {
-              ...existing,
-              ...(cellData as any),
-            })
-          })
-          setDateCells(newDateCells)
-        }
-
-        if (loadedData.selectedYear && typeof loadedData.selectedYear === "number") {
-          setSelectedYear(loadedData.selectedYear)
-        }
-        if (loadedData.selectedColorTexture && typeof loadedData.selectedColorTexture === "string") {
-          setSelectedColorTexture(loadedData.selectedColorTexture)
-        }
-        if (loadedData.selectedView && ["Linear", "Classic", "Column"].includes(loadedData.selectedView)) {
-          setSelectedView(loadedData.selectedView)
-        }
-
-        const mergedDateCells = loadedData.dateCells
-          ? (() => {
-              const newDateCells = new Map(dateCells)
-              Object.entries(loadedData.dateCells).forEach(([dateKey, cellData]) => {
-                const existing = newDateCells.get(dateKey) || {}
-                newDateCells.set(dateKey, {
-                  ...existing,
-                  ...(cellData as any),
-                })
-              })
-              return Object.fromEntries(newDateCells)
-            })()
-          : Object.fromEntries(dateCells)
-
-        const dataToSave = {
-          selectedYear: loadedData.selectedYear || selectedYear,
-          dateCells: mergedDateCells,
-          selectedColorTexture: loadedData.selectedColorTexture || selectedColorTexture,
-          selectedView: loadedData.selectedView || selectedView,
-        }
-        localStorage.setItem("calendar_data", JSON.stringify(dataToSave))
-      } catch (error) {
-        alert("Error loading data: Invalid JSON format")
-        console.error("Error parsing loaded data:", error)
-      }
+    reader.onload = (loadEvent) => {
+      const result = loadEvent.target?.result
+      if (typeof result !== "string") return
+      const response = importPlannerData(result)
+      setStatusMessage(response.message)
     }
     reader.readAsText(file)
-
     event.target.value = ""
   }
 
-  const handleCleanAll = () => {
-    if (window.confirm("Are you sure you want to delete all data? This action cannot be undone.")) {
-      setDateCells(new Map())
-      setSelectedYear(new Date().getFullYear())
-      setSelectedColorTexture("red")
-      setSelectedView("Linear")
-
-      localStorage.removeItem("calendar_data")
-    }
-  }
-
   return (
-    <>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: "16px",
-          marginTop: "30px",
-          padding: "20px",
-          borderTop: `1px solid ${UI_COLORS.border.tertiary}`,
-        }}
-      >
-        <button
-          onClick={handleSaveData}
-          style={{
-            padding: "12px 20px",
-            fontSize: "14px",
-            fontWeight: "bold",
-            backgroundColor: UI_COLORS.button.primary.normal,
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            transition: "background-color 0.2s ease",
-            touchAction: "auto",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.primary.hover
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.primary.normal
-          }}
-        >
-          Save Data...
-        </button>
-
-        <button
-          onClick={handleLoadData}
-          style={{
-            padding: "12px 20px",
-            fontSize: "14px",
-            fontWeight: "bold",
-            backgroundColor: UI_COLORS.button.success.normal,
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            transition: "background-color 0.2s ease",
-            touchAction: "auto",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.success.hover
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.success.normal
-          }}
-        >
-          Load Data
-        </button>
-
-        <button
-          onClick={handleCleanAll}
-          style={{
-            padding: "12px 20px",
-            fontSize: "14px",
-            fontWeight: "bold",
-            backgroundColor: UI_COLORS.button.danger.normal,
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            transition: "background-color 0.2s ease",
-            touchAction: "auto",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.danger.hover
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = UI_COLORS.button.danger.normal
-          }}
-        >
-          Clean All
-        </button>
-
-        <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileChange} style={{ display: "none" }} />
+    <section className="panel save-panel">
+      <div className="panel-heading-row">
+        <div>
+          <p className="section-kicker">Safety</p>
+          <h2>Save, restore, and move your plan safely</h2>
+        </div>
+        <div className="mini-badge">No database. No cloud secrets. Just local-first backups.</div>
       </div>
 
-      <div
-        style={{
-          color: UI_COLORS.text.secondary,
-          textAlign: "center",
-          maxWidth: "800px",
-          margin: "0 auto",
-          padding: "20px",
-        }}
-      >
-        <p style={{ fontSize: "16px" }}>
-          All changes on this page are saved locally in your browser. This page doesn't use any servers and works
-          offline.
-        </p>
-        <p style={{ fontSize: "13px", paddingTop: "20px" }}>
-          However, some browsers may occasionally delete your local storage to "save space", so we strongly recommend
-          saving them to your hard drive using the buttons above.
-        </p>
-        <p style={{ fontSize: "13px", paddingBottom: "100px" }}>
-          Ideas, bugs and feature requests — <a href="https://github.com/vas3k/year.vas3k.cloud">on GitHub</a>.
-        </p>
+      <div className="action-row wrap">
+        <button className="primary-button" onClick={handleDownload}>
+          Export JSON backup
+        </button>
+        <button className="ghost-button" onClick={() => fileInputRef.current?.click()}>
+          Import backup
+        </button>
+        <button className="ghost-button" onClick={() => createSnapshot()}>
+          Save browser snapshot
+        </button>
+        <button
+          className="ghost-button danger"
+          onClick={() => {
+            if (window.confirm("Reset everything in this browser? Export a backup first if you might need it.")) {
+              resetPlanner()
+              setStatusMessage("Planner reset for this browser.")
+            }
+          }}
+        >
+          Reset planner
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileChange} />
       </div>
-    </>
+
+      <div className="save-grid">
+        <div className="summary-card">
+          <strong>Current status</strong>
+          <p>{storageSummary}</p>
+          <p>
+            Best no-database workflow: keep autosave on, export a JSON backup after meaningful changes, and store it in
+            your own cloud drive or git repo.
+          </p>
+          {statusMessage ? <p className="success-text">{statusMessage}</p> : null}
+        </div>
+        <div className="summary-card">
+          <strong>Browser snapshots</strong>
+          {saveSnapshots.length ? (
+            <div className="snapshot-list">
+              {saveSnapshots.map((snapshot) => (
+                <button
+                  key={snapshot.id}
+                  className="snapshot-item"
+                  onClick={() => {
+                    restoreSnapshot(snapshot.id)
+                    setStatusMessage(`Restored snapshot: ${snapshot.label}`)
+                  }}
+                >
+                  <span>{snapshot.label}</span>
+                  <small>{formatDistanceToNow(new Date(snapshot.createdAt), { addSuffix: true })}</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p>No snapshots yet. Create one before major edits.</p>
+          )}
+        </div>
+      </div>
+
+      <p className="footer-note">
+        Safe path for multi-device use: export JSON and sync it yourself via iCloud Drive, Dropbox, Google Drive, git,
+        or any file sync you already trust. This app intentionally avoids client-side tokens and hidden cloud writes.
+      </p>
+    </section>
   )
 }
 

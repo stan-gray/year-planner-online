@@ -7,57 +7,41 @@ const ColorPicker: React.FC = () => {
 
   const getBackgroundStyle = (code: ColorTextureCode): React.CSSProperties => {
     if (code in COLORS) {
-      // It's a color
-      return {
-        backgroundColor: COLORS[code as keyof typeof COLORS],
-      }
-    } else {
-      // It's a texture
-      const textureCode = code as keyof typeof TEXTURES
-      return {
-        backgroundColor: UI_COLORS.background.secondary,
-        backgroundImage: TEXTURES[textureCode],
-        backgroundSize: "6px 6px",
-      }
+      return { backgroundColor: COLORS[code as keyof typeof COLORS] }
+    }
+
+    return {
+      backgroundColor: UI_COLORS.background.secondary,
+      backgroundImage: TEXTURES[code as keyof typeof TEXTURES],
+      backgroundSize: "6px 6px",
     }
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        gap: "12px",
-        marginBottom: "20px",
-        flexWrap: "wrap",
-      }}
-    >
-      {ALL_COLOR_TEXTURE_CODES.map((code) => {
-        const isSelected = selectedColorTexture === code
-        const backgroundStyle = getBackgroundStyle(code)
-
-        return (
-          <button
-            key={code}
-            onClick={() => setSelectedColorTexture(code)}
-            style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "50%",
-              border: isSelected ? `3px solid ${UI_COLORS.border.primary}` : `2px solid ${UI_COLORS.border.secondary}`,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              outline: "none",
-              boxShadow: isSelected ? "0 2px 8px rgba(0,0,0,0.3)" : "0 1px 4px rgba(0,0,0,0.1)",
-              touchAction: "auto",
-              ...backgroundStyle,
-            }}
-            title={code.replace(/-/g, " ")}
-          />
-        )
-      })}
-    </div>
+    <section className="panel compact-panel">
+      <div className="panel-heading-row">
+        <div>
+          <p className="section-kicker">Palette</p>
+          <h3>Pick a marker</h3>
+        </div>
+        <div className="mini-badge">Tap a day to paint, tap the number to add text</div>
+      </div>
+      <div className="palette-grid">
+        {ALL_COLOR_TEXTURE_CODES.map((code) => {
+          const isSelected = selectedColorTexture === code
+          return (
+            <button
+              key={code}
+              className={`palette-swatch${isSelected ? " selected" : ""}`}
+              onClick={() => setSelectedColorTexture(code)}
+              style={getBackgroundStyle(code)}
+              title={code.replace(/-/g, " ")}
+              aria-label={`Use ${code.replace(/-/g, " ")}`}
+            />
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

@@ -1,54 +1,49 @@
-# My Year Planner (opinionated)
+# Year Planner Online
 
-A simple one-pager app to plan your year. It’s an opinionated planner I’ve been using for years for my own quirky needs, but maybe you’ll find it useful too.
+A local-first annual planner for mapping the year on one screen.
 
-**The idea is simple:** it's a digital imitation of a wall calendar. You can paint days in different colors, add emojis and textures, write any text on them, and shape the year your way. That's basically it. Use it however you want and don't forget to save your data.
+This version is tuned for actually using the planner regularly, not just coloring a few days and forgetting it exists.
 
-It all works locally in your browser, no server or cloud involved. 100% private and offline.
+## What’s improved
 
-Ideas, bugfixes and PRs are welcome. Open [issues](https://github.com/vas3k/year.vas3k.cloud/issues) to discuss.
+- **Guided planning UI** — annual vision, definition of success, quarterly focus, and monthly themes.
+- **Reusable routines** — create repeatable weekday/weekend templates and apply them across the whole year.
+- **Planner dashboard** — quick stats, current month focus, and better cues for how the planner is being used.
+- **Safer persistence** — browser autosave, downloadable JSON backups, and in-browser restore snapshots.
+- **Mobile-ready layout** — cleaner panels, responsive controls, and a more polished overall interface.
+- **Still private and database-free** — no backend, no hidden sync, no client-side secrets.
 
-> 😎 **Demo:** download [demo.json](./examples/demo.json), open [year.vas3k.cloud](https://year.vas3k.cloud), scroll down, click "Load Data" and select this file
+## Persistence model
 
-<https://github.com/user-attachments/assets/89565584-4bc5-451c-82ad-aa13f80e6d8e>
+This app intentionally stays **database-free** and **local-first**.
 
-![](./docs/screen1.jpeg)
+The safe workflow is:
 
-![](./docs/screen2.jpeg)
+1. Use the browser autosave for day-to-day work.
+2. Export JSON backups after meaningful updates.
+3. Store those backups anywhere you already trust: iCloud Drive, Dropbox, Google Drive, git, Syncthing, etc.
 
-![](./docs/screen3.jpeg)
+That gives you cross-device portability **without** putting API keys or write tokens into the browser.
 
-## Run it yourself
+## Local development
 
 ```bash
-npm i
+npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000/>. Voilá!
+Then open <http://localhost:3000/>.
 
-For production deployments use `npm run build`
+## Production build
 
-## Run in docker-compose
-
-```yaml
-# docker-compose.yml
----
-
-services:
-  app:
-    build:
-      context: https://github.com/vas3k/year.vas3k.cloud.git
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
+```bash
+npm run build
 ```
 
+## GitHub Pages
 
+This repo is deployed to GitHub Pages at:
 
-## GitHub Pages deployment
+**https://stan-gray.github.io/year-planner-online/**
 
-This fork is configured to deploy automatically to GitHub Pages via GitHub Actions.
-After push, the public app should be available at:
-
-`https://stan-gray.github.io/year-planner-online/`
+The GitHub Actions workflow builds on push to `main` and deploys the static `build/` output.
