@@ -30,7 +30,7 @@ const PlannerInsights: React.FC = () => {
           <p className="section-kicker">Dashboard</p>
           <h2>{selectedYear} at a glance</h2>
         </div>
-        <div className="mini-badge">Private, browser-only, exportable</div>
+        <div className="mini-badge">Local-first, exportable, optional secure online save</div>
       </div>
 
       <div className="stats-grid">

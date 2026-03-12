@@ -1,12 +1,29 @@
-import React, { useMemo, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { formatDistanceToNow } from "date-fns"
 import { useCalendar } from "../contexts/CalendarContext"
+import { getRemotePlannerId, loadPlannerRemotely, savePlannerRemotely } from "../lib/remotePlanner"
 
 const SaveLoadData: React.FC = () => {
-  const { exportPlannerData, importPlannerData, saveSnapshots, createSnapshot, restoreSnapshot, resetPlanner, plannerData } =
-    useCalendar()
+  const {
+    exportPlannerData,
+    importPlannerData,
+    replacePlannerData,
+    saveSnapshots,
+    createSnapshot,
+    restoreSnapshot,
+    resetPlanner,
+    plannerData,
+  } = useCalendar()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [statusMessage, setStatusMessage] = useState<string>("")
+  const [remotePlannerId, setRemotePlannerId] = useState<string>("")
+  const [remoteUpdatedAt, setRemoteUpdatedAt] = useState<string>("")
+  const [isSavingRemote, setIsSavingRemote] = useState(false)
+  const [isLoadingRemote, setIsLoadingRemote] = useState(false)
+
+  useEffect(() => {
+    setRemotePlannerId(getRemotePlannerId())
+  }, [])
 
   const storageSummary = useMemo(
     () =>
@@ -15,6 +32,12 @@ const SaveLoadData: React.FC = () => {
         : "Autosaved in this browser.",
     [plannerData.updatedAt]
   )
+
+  const remoteSummary = useMemo(() => {
+    if (!remotePlannerId) return "Preparing secure online storage…"
+    if (!remoteUpdatedAt) return "No online save yet for this planner." 
+    return `Last online save ${formatDistanceToNow(new Date(remoteUpdatedAt), { addSuffix: true })}.`
+  }, [remotePlannerId, remoteUpdatedAt])
 
   const handleDownload = () => {
     const blob = new Blob([exportPlannerData()], { type: "application/json" })
@@ -44,14 +67,45 @@ const SaveLoadData: React.FC = () => {
     event.target.value = ""
   }
 
+  const handleRemoteSave = async () => {
+    if (!remotePlannerId) return
+
+    setIsSavingRemote(true)
+    try {
+      const result = await savePlannerRemotely(remotePlannerId, plannerData)
+      setRemoteUpdatedAt(result.updatedAt)
+      setStatusMessage("Saved planner online securely via the server.")
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not save planner online.")
+    } finally {
+      setIsSavingRemote(false)
+    }
+  }
+
+  const handleRemoteLoad = async () => {
+    if (!remotePlannerId) return
+
+    setIsLoadingRemote(true)
+    try {
+      const result = await loadPlannerRemotely(remotePlannerId)
+      replacePlannerData(result.plannerData)
+      setRemoteUpdatedAt(result.updatedAt)
+      setStatusMessage("Loaded planner from secure online storage.")
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not load planner online.")
+    } finally {
+      setIsLoadingRemote(false)
+    }
+  }
+
   return (
     <section className="panel save-panel">
       <div className="panel-heading-row">
         <div>
           <p className="section-kicker">Safety</p>
-          <h2>Save, restore, and move your plan safely</h2>
+          <h2>Save, restore, and sync your plan safely</h2>
         </div>
-        <div className="mini-badge">No database. No cloud secrets. Just local-first backups.</div>
+        <div className="mini-badge">Local-first in the browser, optional secure save/load through the server</div>
       </div>
 
       <div className="action-row wrap">
@@ -63,6 +117,12 @@ const SaveLoadData: React.FC = () => {
         </button>
         <button className="ghost-button" onClick={() => createSnapshot()}>
           Save browser snapshot
+        </button>
+        <button className="ghost-button" onClick={handleRemoteSave} disabled={!remotePlannerId || isSavingRemote}>
+          {isSavingRemote ? "Saving online…" : "Save online"}
+        </button>
+        <button className="ghost-button" onClick={handleRemoteLoad} disabled={!remotePlannerId || isLoadingRemote}>
+          {isLoadingRemote ? "Loading online…" : "Load online"}
         </button>
         <button
           className="ghost-button danger"
@@ -83,10 +143,23 @@ const SaveLoadData: React.FC = () => {
           <strong>Current status</strong>
           <p>{storageSummary}</p>
           <p>
-            Best no-database workflow: keep autosave on, export a JSON backup after meaningful changes, and store it in
-            your own cloud drive or git repo.
+            Best workflow: keep local autosave on for day-to-day edits, export JSON after meaningful updates, and use online
+            save/load when you want a server-backed copy.
           </p>
           {statusMessage ? <p className="success-text">{statusMessage}</p> : null}
+        </div>
+        <div className="summary-card">
+          <strong>Secure online storage</strong>
+          <p>{remoteSummary}</p>
+          <p>
+            The browser only talks to this app&apos;s own API route. Database credentials stay server-side in Vercel env vars,
+            not in frontend code.
+          </p>
+          {remotePlannerId ? (
+            <p className="footer-note" style={{ marginTop: "0.75rem" }}>
+              Planner ID: <code>{remotePlannerId}</code>
+            </p>
+          ) : null}
         </div>
         <div className="summary-card">
           <strong>Browser snapshots</strong>
@@ -113,8 +186,8 @@ const SaveLoadData: React.FC = () => {
       </div>
 
       <p className="footer-note">
-        Safe path for multi-device use: export JSON and sync it yourself via iCloud Drive, Dropbox, Google Drive, git,
-        or any file sync you already trust. This app intentionally avoids client-side tokens and hidden cloud writes.
+        Local-first remains the default. Online save/load is there when you want a server-backed copy, while JSON export stays
+        the most portable backup.
       </p>
     </section>
   )

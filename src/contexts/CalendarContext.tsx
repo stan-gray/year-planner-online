@@ -69,6 +69,7 @@ interface CalendarContextType {
   resetPlanner: () => void
   exportPlannerData: () => string
   importPlannerData: (raw: string) => { imported: boolean; message: string }
+  replacePlannerData: (data: PlannerData) => void
   saveSnapshots: SaveSnapshot[]
   createSnapshot: (label?: string) => void
   restoreSnapshot: (snapshotId: string) => boolean
@@ -383,6 +384,10 @@ export const CalendarProvider: React.FC<CalendarProviderProps> = ({ children }) 
     }
   }
 
+  const replacePlannerData = (data: PlannerData) => {
+    setPlannerData(normalizePlannerData(data))
+  }
+
   const restoreSnapshot = (snapshotId: string) => {
     const snapshot = saveSnapshots.find((entry) => entry.id === snapshotId)
     if (!snapshot) return false
@@ -426,6 +431,7 @@ export const CalendarProvider: React.FC<CalendarProviderProps> = ({ children }) 
     resetPlanner,
     exportPlannerData,
     importPlannerData,
+    replacePlannerData,
     saveSnapshots,
     createSnapshot,
     restoreSnapshot,

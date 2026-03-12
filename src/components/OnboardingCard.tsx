@@ -13,7 +13,7 @@ const OnboardingCard: React.FC = () => {
           <li>Write your annual vision and what success means.</li>
           <li>Set quarterly focuses and monthly themes.</li>
           <li>Use routines to prefill repeatable work, review, or recovery days.</li>
-          <li>Export JSON snapshots regularly so your plan survives browser cleanup.</li>
+          <li>Export JSON snapshots regularly and use online save when you want a server-backed copy.</li>
         </ol>
       </div>
       <div className="onboarding-actions">

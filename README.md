@@ -1,29 +1,36 @@
 # Year Planner Online
 
-A local-first annual planner for mapping the year on one screen.
+A polished annual planner for mapping the whole year on one screen.
 
-This version is tuned for actually using the planner regularly, not just coloring a few days and forgetting it exists.
+This version stays **local-first** for day-to-day UX, while adding an optional **server-side persistence path** for Vercel using Neon Postgres.
 
-## What’s improved
+## What changed
 
-- **Guided planning UI** — annual vision, definition of success, quarterly focus, and monthly themes.
-- **Reusable routines** — create repeatable weekday/weekend templates and apply them across the whole year.
-- **Planner dashboard** — quick stats, current month focus, and better cues for how the planner is being used.
-- **Safer persistence** — browser autosave, downloadable JSON backups, and in-browser restore snapshots.
-- **Mobile-ready layout** — cleaner panels, responsive controls, and a more polished overall interface.
-- **Still private and database-free** — no backend, no hidden sync, no client-side secrets.
+- **Guided planning UI** — annual vision, definition of success, quarterly focus, monthly themes, and reusable routines.
+- **Local autosave still works** — the planner remains fast and resilient in the browser.
+- **Server-side online save/load** — the frontend now talks only to `/api/planner/[plannerId]`.
+- **Neon Postgres persistence** — planner state is stored server-side via `DATABASE_URL` in Vercel env vars.
+- **No client-side secrets** — database credentials never ship to the browser.
+- **Lightweight schema bootstrap** — the API route creates the `planner_states` table automatically if needed.
+- **JSON export/import and browser snapshots** — still available as portable backups.
 
 ## Persistence model
 
-This app intentionally stays **database-free** and **local-first**.
+The planner now supports two safe layers:
 
-The safe workflow is:
+1. **Local-first browser autosave** for regular editing.
+2. **Optional online save/load** through the app's own serverless API route.
+3. **JSON export/import** for portable backups.
 
-1. Use the browser autosave for day-to-day work.
-2. Export JSON backups after meaningful updates.
-3. Store those backups anywhere you already trust: iCloud Drive, Dropbox, Google Drive, git, Syncthing, etc.
+That means you can keep the snappy browser UX while also saving a server-backed copy without exposing database credentials in frontend code.
 
-That gives you cross-device portability **without** putting API keys or write tokens into the browser.
+## Environment
+
+Set this in Vercel project environment variables:
+
+- `DATABASE_URL` — Neon Postgres connection string
+
+Do **not** put this in client-side env vars or committed source files.
 
 ## Local development
 
@@ -34,16 +41,18 @@ npm run dev
 
 Then open <http://localhost:3000/>.
 
+If you want the API route to work locally too, provide `DATABASE_URL` in your local environment before deploying/testing server routes.
+
 ## Production build
 
 ```bash
 npm run build
 ```
 
-## GitHub Pages
+## Deployment
 
-This repo is deployed to GitHub Pages at:
+This repo is intended for Vercel deployment.
 
-**https://stan-gray.github.io/year-planner-online/**
-
-The GitHub Actions workflow builds on push to `main` and deploys the static `build/` output.
+- Static frontend: CRA build output
+- API route: `api/planner/[plannerId].js`
+- Database: Neon Postgres via Vercel server environment

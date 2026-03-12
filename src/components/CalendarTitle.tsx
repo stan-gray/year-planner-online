@@ -12,8 +12,8 @@ const CalendarTitle: React.FC = () => {
         <p className="eyebrow">Annual planner</p>
         <h1>Design the year with more clarity, less noise.</h1>
         <p className="hero-copy">
-          Map priorities, mark time visually, and keep the whole year readable at a glance — with local-first backups and
-          calm, structured planning surfaces that don&apos;t fight you.
+          Map priorities, mark time visually, and keep the whole year readable at a glance — with local-first editing,
+          exportable backups, and secure online save/load through the app&apos;s own server routes.
         </p>
       </div>
 
