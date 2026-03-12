@@ -909,8 +909,69 @@ select {
   margin: 0 auto 14px;
 }
 
+.mobile-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-close-button {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.mobile-day-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.mobile-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.mobile-note-field {
+  margin-top: 16px;
+}
+
+.mobile-note-field textarea {
+  min-height: 160px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.mobile-editor-tip {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(47, 91, 234, 0.05);
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
 .mobile-sheet-actions {
   margin-top: 6px;
+}
+
+.mobile-sheet-footer-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 12px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,0.98) 24px);
+}
+
+.primary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 @media (max-width: 1180px) {
@@ -1004,6 +1065,16 @@ select {
 
   .mobile-day-sheet {
     padding-bottom: calc(22px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-sheet-header,
+  .mobile-sheet-footer-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mobile-quick-actions {
+    grid-template-columns: 1fr;
   }
 }
 

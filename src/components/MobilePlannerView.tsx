@@ -1,8 +1,7 @@
-import { eachDayOfInterval, endOfMonth, format, getDay, isSameMonth, isToday, startOfMonth } from "date-fns"
-import React, { useEffect, useMemo, useState } from "react"
-import { DateCellData, getDateKey, UI_COLORS } from "../utils/colors"
+import { eachDayOfInterval, endOfMonth, format, getDay, isSameDay, isToday, startOfMonth } from "date-fns"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useCalendar } from "../contexts/CalendarContext"
-import { ColorTextureCode, COLORS, TEXTURES, WEEKEND_COLOR } from "../utils/colors"
+import { ColorTextureCode, COLORS, DateCellData, getDateKey, TEXTURES, UI_COLORS, WEEKEND_COLOR } from "../utils/colors"
 
 interface MobilePlannerViewProps {
   selectedYear: number
@@ -15,10 +14,12 @@ const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dateCells, setDateCells, selectedColorTexture }) => {
   const { monthPlans } = useCalendar()
+  const noteInputRef = useRef<HTMLTextAreaElement>(null)
   const currentMonthForYear = new Date().getFullYear() === selectedYear ? new Date().getMonth() : 0
   const [selectedMonth, setSelectedMonth] = useState(currentMonthForYear)
   const [activeDate, setActiveDate] = useState<Date | null>(null)
   const [draftNote, setDraftNote] = useState("")
+  const [shouldFocusNote, setShouldFocusNote] = useState(false)
 
   useEffect(() => {
     setSelectedMonth(currentMonthForYear)
@@ -48,11 +49,48 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
   )
 
   const activeCell = activeDate ? dateCells.get(getDateKey(activeDate)) || {} : null
+  const activeSavedNote = activeCell?.customText || ""
+  const activeHasMarker = Boolean(activeCell?.color || activeCell?.texture)
+  const draftTrimmed = draftNote.trim()
+  const savedTrimmed = activeSavedNote.trim()
+  const hasUnsavedChanges = draftTrimmed !== savedTrimmed
 
   useEffect(() => {
     if (!activeDate) return
     setDraftNote(activeCell?.customText || "")
   }, [activeCell?.customText, activeDate])
+
+  useEffect(() => {
+    if (!activeDate || !shouldFocusNote || !noteInputRef.current) return
+
+    const timer = window.setTimeout(() => {
+      noteInputRef.current?.focus()
+      const length = noteInputRef.current?.value.length || 0
+      noteInputRef.current?.setSelectionRange(length, length)
+      noteInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+      setShouldFocusNote(false)
+    }, 120)
+
+    return () => window.clearTimeout(timer)
+  }, [activeDate, shouldFocusNote])
+
+  useEffect(() => {
+    if (!activeDate) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveDate(null)
+      }
+    }
+
+    document.body.style.overflow = "hidden"
+    window.addEventListener("keydown", handleEscape)
+
+    return () => {
+      document.body.style.overflow = ""
+      window.removeEventListener("keydown", handleEscape)
+    }
+  }, [activeDate])
 
   const updateDateCell = (date: Date, updater: (current: DateCellData) => DateCellData | null) => {
     const key = getDateKey(date)
@@ -93,13 +131,31 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
   const saveNote = (date: Date) => {
     updateDateCell(date, (current) => {
       const next: DateCellData = { ...current }
-      if (draftNote.trim()) {
-        next.customText = draftNote.trim()
+      if (draftTrimmed) {
+        next.customText = draftTrimmed
       } else {
         delete next.customText
       }
       return Object.keys(next).length ? next : null
     })
+  }
+
+  const clearDay = (date: Date) => {
+    const nextCells = new Map(dateCells)
+    nextCells.delete(getDateKey(date))
+    setDateCells(nextCells)
+    setDraftNote("")
+  }
+
+  const openDaySheet = (date: Date, options?: { focusNote?: boolean }) => {
+    setActiveDate(date)
+    setShouldFocusNote(Boolean(options?.focusNote))
+  }
+
+  const closeDaySheet = () => {
+    setDraftNote(activeSavedNote)
+    setShouldFocusNote(false)
+    setActiveDate(null)
   }
 
   const selectedMarkerPreview: React.CSSProperties =
@@ -125,7 +181,7 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
           </div>
         </div>
         <p className="mobile-helper-copy">
-          Pick a month, tap a day, and make edits in a roomy sheet instead of tiny inline cells. The full planner still syncs with desktop.
+          Mobile uses a dedicated day editor now: tap a date to open a full sheet, then add notes with clear save and cancel actions.
         </p>
         <div className="mobile-month-strip" role="tablist" aria-label="Months">
           {Array.from({ length: 12 }, (_, monthIndex) => (
@@ -152,8 +208,16 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
 
         {monthPlans[selectedMonth]?.theme || monthPlans[selectedMonth]?.highlight ? (
           <div className="mobile-month-summary">
-            {monthPlans[selectedMonth]?.theme ? <p><strong>Theme:</strong> {monthPlans[selectedMonth]?.theme}</p> : null}
-            {monthPlans[selectedMonth]?.highlight ? <p><strong>Highlight:</strong> {monthPlans[selectedMonth]?.highlight}</p> : null}
+            {monthPlans[selectedMonth]?.theme ? (
+              <p>
+                <strong>Theme:</strong> {monthPlans[selectedMonth]?.theme}
+              </p>
+            ) : null}
+            {monthPlans[selectedMonth]?.highlight ? (
+              <p>
+                <strong>Highlight:</strong> {monthPlans[selectedMonth]?.highlight}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -174,16 +238,20 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
             const markerStyle: React.CSSProperties = cell.color
               ? { backgroundColor: COLORS[cell.color] }
               : cell.texture
-                ? { backgroundColor: UI_COLORS.background.secondary, backgroundImage: TEXTURES[cell.texture], backgroundSize: "8px 8px" }
+                ? {
+                    backgroundColor: UI_COLORS.background.secondary,
+                    backgroundImage: TEXTURES[cell.texture],
+                    backgroundSize: "8px 8px",
+                  }
                 : { backgroundColor: day.getDay() === 0 || day.getDay() === 6 ? WEEKEND_COLOR : "rgba(255,255,255,0.9)" }
 
             return (
               <button
                 key={getDateKey(day)}
                 type="button"
-                className={`mobile-day-cell${isToday(day) ? " today" : ""}${isSameMonth(activeDate || new Date(0), day) && activeDate?.getDate() === day.getDate() ? " selected" : ""}`}
+                className={`mobile-day-cell${isToday(day) ? " today" : ""}${isSameDay(activeDate || new Date(0), day) ? " selected" : ""}`}
                 style={markerStyle}
-                onClick={() => setActiveDate(day)}
+                onClick={() => openDaySheet(day)}
               >
                 <span className="mobile-day-number">{day.getDate()}</span>
                 {hasNote ? <span className="mobile-day-note-dot" /> : null}
@@ -206,12 +274,12 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
             {highlightedDays.map((day) => {
               const cell = dateCells.get(getDateKey(day)) || {}
               return (
-                <button key={getDateKey(day)} type="button" className="mobile-agenda-item" onClick={() => setActiveDate(day)}>
+                <button key={getDateKey(day)} type="button" className="mobile-agenda-item" onClick={() => openDaySheet(day, { focusNote: true })}>
                   <div>
                     <strong>{format(day, "EEE, MMM d")}</strong>
-                    <p>{cell.customText?.trim() || "Marked day — tap to edit details."}</p>
+                    <p>{cell.customText?.trim() || "Marked day — tap to add details."}</p>
                   </div>
-                  <span>Open</span>
+                  <span>Edit</span>
                 </button>
               )
             })}
@@ -222,28 +290,57 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
       </section>
 
       {activeDate ? (
-        <div className="mobile-sheet-backdrop" onClick={() => setActiveDate(null)}>
-          <div className="mobile-day-sheet" onClick={(event) => event.stopPropagation()}>
+        <div className="mobile-sheet-backdrop" onClick={closeDaySheet}>
+          <div className="mobile-day-sheet" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Edit ${format(activeDate, "EEEE, MMMM d")}`}>
             <div className="mobile-sheet-handle" />
-            <p className="section-kicker">Day editor</p>
-            <h3>{format(activeDate, "EEEE, MMMM d")}</h3>
-            <p className="mobile-helper-copy">Use your current marker, clear the day, or leave yourself a note.</p>
-            <div className="action-row wrap mobile-sheet-actions">
+            <div className="mobile-sheet-header">
+              <div>
+                <p className="section-kicker">Day editor</p>
+                <h3>{format(activeDate, "EEEE, MMMM d")}</h3>
+              </div>
+              <button className="ghost-button mobile-close-button" type="button" onClick={closeDaySheet}>
+                Close
+              </button>
+            </div>
+
+            <div className="mobile-day-status-row">
+              <div className="mini-badge">{activeHasMarker ? "Marker applied" : "No marker yet"}</div>
+              <div className="mini-badge">{savedTrimmed ? "Note saved" : "No note yet"}</div>
+            </div>
+
+            <div className="mobile-quick-actions">
               <button className="primary-button" type="button" onClick={() => applyMarker(activeDate)}>
                 Apply selected marker
+              </button>
+              <button className="ghost-button" type="button" onClick={() => setShouldFocusNote(true)}>
+                {savedTrimmed ? "Edit note" : "Add note"}
               </button>
               <button className="ghost-button" type="button" onClick={() => clearMarker(activeDate)}>
                 Clear marker
               </button>
+              <button className="ghost-button danger" type="button" onClick={() => clearDay(activeDate)}>
+                Clear day
+              </button>
             </div>
-            <label className="field-label">
-              Note
-              <textarea value={draftNote} onChange={(event) => setDraftNote(event.target.value)} rows={5} placeholder="Trip, launch, deep-work block, celebration…" />
+
+            <label className="field-label mobile-note-field">
+              Note for this day
+              <textarea
+                ref={noteInputRef}
+                value={draftNote}
+                onChange={(event) => setDraftNote(event.target.value)}
+                rows={6}
+                placeholder="Trip, launch, deep-work block, celebration…"
+              />
             </label>
-            <div className="action-row wrap mobile-sheet-actions">
+
+            <div className="mobile-editor-tip">Notes stay local immediately and continue syncing through the existing save/auth flow.</div>
+
+            <div className="action-row wrap mobile-sheet-actions mobile-sheet-footer-actions">
               <button
                 className="primary-button"
                 type="button"
+                disabled={!hasUnsavedChanges}
                 onClick={() => {
                   saveNote(activeDate)
                   setActiveDate(null)
@@ -251,7 +348,15 @@ const MobilePlannerView: React.FC<MobilePlannerViewProps> = ({ selectedYear, dat
               >
                 Save note
               </button>
-              <button className="ghost-button" type="button" onClick={() => setActiveDate(null)}>
+              <button
+                className="ghost-button"
+                type="button"
+                disabled={!hasUnsavedChanges}
+                onClick={() => setDraftNote(activeSavedNote)}
+              >
+                Cancel changes
+              </button>
+              <button className="ghost-button" type="button" onClick={closeDaySheet}>
                 Done
               </button>
             </div>
