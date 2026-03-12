@@ -578,13 +578,19 @@ select {
 }
 
 .footer-note,
-.success-text {
+.success-text,
+.mini-note {
   margin: 0.95rem 0 0;
 }
 
 .success-text {
   color: var(--success);
   font-weight: 700;
+}
+
+.mini-note {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .day {

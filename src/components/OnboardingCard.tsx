@@ -11,9 +11,9 @@ const OnboardingCard: React.FC = () => {
         <h2>Use it like a planner, not a spreadsheet</h2>
         <ol>
           <li>Write your annual vision and what success means.</li>
-          <li>Set quarterly focuses and monthly themes.</li>
+          <li>Tap a day cell to paint it. Use the small ✎ button when you want a note.</li>
           <li>Use routines to prefill repeatable work, review, or recovery days.</li>
-          <li>Export JSON snapshots regularly and use online save when you want a server-backed copy.</li>
+          <li>Stay local-only if you want, or add account sync later for a server-backed copy across devices.</li>
         </ol>
       </div>
       <div className="onboarding-actions">

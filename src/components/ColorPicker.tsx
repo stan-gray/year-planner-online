@@ -24,7 +24,7 @@ const ColorPicker: React.FC = () => {
           <p className="section-kicker">Palette</p>
           <h3>Pick a marker</h3>
         </div>
-        <div className="mini-badge">Tap a day to paint, tap the number to add text</div>
+        <div className="mini-badge">Tap a cell to paint it. Use the ✎ button for notes.</div>
       </div>
       <div className="palette-grid">
         {ALL_COLOR_TEXTURE_CODES.map((code) => {

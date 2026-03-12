@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { formatDistanceToNow } from "date-fns"
 import { useCalendar } from "../contexts/CalendarContext"
-import { getAccountSession, loadAccountPlanner, registerAccount, saveAccountPlanner, signIn, signOut } from "../lib/account"
+import {
+  getAccountSession,
+  loadAccountPlanner,
+  registerAccount,
+  RevisionConflictError,
+  saveAccountPlanner,
+  signIn,
+  signOut,
+} from "../lib/account"
 
 type SyncPhase = "offline" | "checking" | "needs-choice" | "idle" | "saving" | "saved" | "loading" | "error"
 
@@ -15,12 +23,16 @@ const SaveLoadData: React.FC = () => {
     restoreSnapshot,
     resetPlanner,
     plannerData,
+    markSynced,
+    setSyncState,
+    clearSyncState,
+    hasUnsyncedChanges,
+    isPlannerEmpty,
   } = useCalendar()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimerRef = useRef<number | null>(null)
   const initializedRef = useRef(false)
   const [statusMessage, setStatusMessage] = useState<string>("")
-  const [cloudUpdatedAt, setCloudUpdatedAt] = useState<string>("")
   const [sessionEmail, setSessionEmail] = useState<string>("")
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [syncPhase, setSyncPhase] = useState<SyncPhase>("checking")
@@ -29,6 +41,9 @@ const SaveLoadData: React.FC = () => {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [authBusy, setAuthBusy] = useState(false)
+
+  const cloudUpdatedAt = plannerData.sync.cloudUpdatedAt
+  const cloudRevision = plannerData.sync.revision
 
   const storageSummary = useMemo(
     () =>
@@ -39,32 +54,46 @@ const SaveLoadData: React.FC = () => {
   )
 
   const cloudSummary = useMemo(() => {
-    if (!isAuthenticated) return "Sign in to connect this browser to a real account-backed cloud planner."
-    if (!cloudUpdatedAt) return "Your account is connected, but nothing has been saved to the cloud yet."
-    return `Cloud planner updated ${formatDistanceToNow(new Date(cloudUpdatedAt), { addSuffix: true })}.`
-  }, [cloudUpdatedAt, isAuthenticated])
+    if (!isAuthenticated) return "You can stay local-only, or sign in if you want a server-backed copy across devices."
+    if (!cloudUpdatedAt) return "Your account is connected, but no cloud revision exists yet."
+    const updated = formatDistanceToNow(new Date(cloudUpdatedAt), { addSuffix: true })
+    return `Cloud revision ${cloudRevision ?? 1} updated ${updated}.`
+  }, [cloudRevision, cloudUpdatedAt, isAuthenticated])
 
   const syncLabel = useMemo(() => {
     switch (syncPhase) {
       case "checking":
         return "Checking account session…"
       case "needs-choice":
-        return "Choose whether to load cloud data or keep this browser copy"
+        return "Review which copy should win"
       case "saving":
         return "Saving to cloud…"
       case "saved":
-        return "All changes saved to cloud"
+        return "Cloud saved"
       case "loading":
         return "Loading cloud planner…"
       case "error":
         return "Cloud sync needs attention"
       case "idle":
-        return autoSyncEnabled ? "Auto-sync is on" : "Signed in, waiting for your sync choice"
+        return autoSyncEnabled ? "Auto-sync is on" : "Signed in, sync paused"
       case "offline":
       default:
         return "Local-only mode"
     }
   }, [autoSyncEnabled, syncPhase])
+
+  const handleRemoteLoaded = (result: Awaited<ReturnType<typeof loadAccountPlanner>>, emailForSync: string) => {
+    replacePlannerData({
+      ...result.plannerData,
+      sync: {
+        accountEmail: emailForSync,
+        revision: result.revision,
+        cloudUpdatedAt: result.updatedAt,
+        lastSyncedLocalUpdatedAt: result.plannerData.updatedAt,
+      },
+    })
+    setSessionEmail(emailForSync)
+  }
 
   const refreshSession = async () => {
     setSyncPhase("checking")
@@ -73,7 +102,6 @@ const SaveLoadData: React.FC = () => {
       const authenticated = Boolean(session.authenticated && session.user?.email)
       setIsAuthenticated(authenticated)
       setSessionEmail(session.user?.email || "")
-      setCloudUpdatedAt(session.planner?.updatedAt || "")
 
       if (!authenticated) {
         setAutoSyncEnabled(false)
@@ -81,13 +109,50 @@ const SaveLoadData: React.FC = () => {
         return
       }
 
-      if (session.planner?.updatedAt && session.planner.updatedAt !== plannerData.updatedAt) {
-        setAutoSyncEnabled(false)
-        setSyncPhase("needs-choice")
-      } else {
+      const serverRevision = session.planner?.revision ?? null
+      const serverUpdatedAt = session.planner?.updatedAt || ""
+      const localRevision = plannerData.sync.accountEmail === session.user?.email ? plannerData.sync.revision : null
+      const sameRevision = serverRevision !== null && localRevision === serverRevision
+
+      setSyncState({
+        accountEmail: session.user?.email || "",
+        revision: sameRevision ? serverRevision : plannerData.sync.revision,
+        cloudUpdatedAt: serverUpdatedAt || plannerData.sync.cloudUpdatedAt,
+      })
+
+      if (!serverRevision) {
         setAutoSyncEnabled(true)
         setSyncPhase("idle")
+        return
       }
+
+      if (!plannerData.sync.accountEmail && isPlannerEmpty) {
+        const result = await loadAccountPlanner()
+        handleRemoteLoaded(result, session.user?.email || "")
+        setAutoSyncEnabled(true)
+        setSyncPhase("saved")
+        setStatusMessage("Loaded your existing cloud planner into this browser.")
+        return
+      }
+
+      if (sameRevision) {
+        setAutoSyncEnabled(true)
+        setSyncPhase("idle")
+        return
+      }
+
+      if (!hasUnsyncedChanges) {
+        const result = await loadAccountPlanner()
+        handleRemoteLoaded(result, session.user?.email || "")
+        setAutoSyncEnabled(true)
+        setSyncPhase("saved")
+        setStatusMessage("This browser was behind, so it quietly adopted the latest cloud revision.")
+        return
+      }
+
+      setAutoSyncEnabled(false)
+      setSyncPhase("needs-choice")
+      setStatusMessage("This browser has unsynced edits and the cloud changed elsewhere. Pick which copy becomes the source of truth.")
     } catch (error) {
       setSyncPhase("error")
       setStatusMessage(error instanceof Error ? error.message : "Could not check account session.")
@@ -105,7 +170,7 @@ const SaveLoadData: React.FC = () => {
       return
     }
 
-    if (!isAuthenticated || !autoSyncEnabled) return
+    if (!isAuthenticated || !autoSyncEnabled || !plannerData.sync.accountEmail || !hasUnsyncedChanges) return
 
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current)
@@ -114,10 +179,24 @@ const SaveLoadData: React.FC = () => {
     setSyncPhase("saving")
     autosaveTimerRef.current = window.setTimeout(async () => {
       try {
-        const result = await saveAccountPlanner(plannerData)
-        setCloudUpdatedAt(result.updatedAt)
+        const result = await saveAccountPlanner(plannerData, plannerData.sync.revision)
+        markSynced({
+          accountEmail: plannerData.sync.accountEmail,
+          revision: result.revision,
+          cloudUpdatedAt: result.updatedAt,
+        })
         setSyncPhase("saved")
       } catch (error) {
+        if (error instanceof RevisionConflictError) {
+          if (error.current && plannerData.sync.accountEmail) {
+            setSyncState({ revision: error.current.revision, cloudUpdatedAt: error.current.updatedAt })
+          }
+          setAutoSyncEnabled(false)
+          setSyncPhase("needs-choice")
+          setStatusMessage(error.message)
+          return
+        }
+
         setSyncPhase("error")
         setStatusMessage(error instanceof Error ? error.message : "Could not save planner to cloud.")
       }
@@ -128,7 +207,7 @@ const SaveLoadData: React.FC = () => {
         window.clearTimeout(autosaveTimerRef.current)
       }
     }
-  }, [autoSyncEnabled, isAuthenticated, plannerData])
+  }, [autoSyncEnabled, hasUnsyncedChanges, isAuthenticated, markSynced, plannerData, setSyncState])
 
   const handleDownload = () => {
     const blob = new Blob([exportPlannerData()], { type: "application/json" })
@@ -158,29 +237,41 @@ const SaveLoadData: React.FC = () => {
     event.target.value = ""
   }
 
-  const pushLocalToCloud = async () => {
+  const pushLocalToCloud = async (forceMessage?: string) => {
     setSyncPhase("saving")
     try {
-      const result = await saveAccountPlanner(plannerData)
-      setCloudUpdatedAt(result.updatedAt)
+      const result = await saveAccountPlanner(plannerData, plannerData.sync.revision)
+      markSynced({
+        accountEmail: sessionEmail || plannerData.sync.accountEmail,
+        revision: result.revision,
+        cloudUpdatedAt: result.updatedAt,
+      })
       setAutoSyncEnabled(true)
       setSyncPhase("saved")
-      setStatusMessage("This browser copy is now the cloud source of truth.")
+      setStatusMessage(forceMessage || "This browser copy is now the cloud source of truth.")
     } catch (error) {
+      if (error instanceof RevisionConflictError) {
+        if (error.current) {
+          setSyncState({ revision: error.current.revision, cloudUpdatedAt: error.current.updatedAt })
+        }
+        setAutoSyncEnabled(false)
+        setSyncPhase("needs-choice")
+        setStatusMessage(error.message)
+        return
+      }
       setSyncPhase("error")
       setStatusMessage(error instanceof Error ? error.message : "Could not save planner to cloud.")
     }
   }
 
-  const pullCloudToLocal = async () => {
+  const pullCloudToLocal = async (forceMessage?: string) => {
     setSyncPhase("loading")
     try {
       const result = await loadAccountPlanner()
-      replacePlannerData(result.plannerData)
-      setCloudUpdatedAt(result.updatedAt)
+      handleRemoteLoaded(result, sessionEmail || plannerData.sync.accountEmail)
       setAutoSyncEnabled(true)
       setSyncPhase("saved")
-      setStatusMessage("Loaded the cloud planner into this browser.")
+      setStatusMessage(forceMessage || "Loaded the cloud planner into this browser.")
     } catch (error) {
       setSyncPhase("error")
       setStatusMessage(error instanceof Error ? error.message : "Could not load planner from cloud.")
@@ -195,25 +286,43 @@ const SaveLoadData: React.FC = () => {
     try {
       if (authMode === "register") {
         const session = await registerAccount(email, password, plannerData)
+        const nextEmail = session.user?.email || email
         setIsAuthenticated(true)
-        setSessionEmail(session.user?.email || email)
-        setCloudUpdatedAt(new Date().toISOString())
+        setSessionEmail(nextEmail)
+        markSynced({
+          accountEmail: nextEmail,
+          revision: session.planner?.revision ?? 1,
+          cloudUpdatedAt: session.planner?.updatedAt || new Date().toISOString(),
+        })
         setAutoSyncEnabled(true)
         setSyncPhase("saved")
-        setStatusMessage("Account created. Your current browser planner was claimed and saved to your account.")
+        setStatusMessage("Account created. This browser planner is now claimed by your account and ready to sync.")
       } else {
         const session = await signIn(email, password)
         setIsAuthenticated(true)
         setSessionEmail(session.user?.email || email)
-        setCloudUpdatedAt(session.planner?.updatedAt || "")
-        if (session.planner?.updatedAt && session.planner.updatedAt !== plannerData.updatedAt) {
-          setAutoSyncEnabled(false)
-          setSyncPhase("needs-choice")
-          setStatusMessage("Signed in. Choose whether to load the cloud planner or keep what is currently in this browser.")
-        } else {
+
+        const serverRevision = session.planner?.revision ?? null
+        const localRevision = plannerData.sync.accountEmail === (session.user?.email || email) ? plannerData.sync.revision : null
+
+        if (!serverRevision) {
+          setSyncState({ accountEmail: session.user?.email || email })
           setAutoSyncEnabled(true)
           setSyncPhase("idle")
-          setStatusMessage("Signed in. Auto-sync is ready.")
+          setStatusMessage("Signed in. Cloud sync is ready whenever you want it.")
+        } else if (!plannerData.sync.accountEmail && isPlannerEmpty) {
+          await pullCloudToLocal("Signed in and loaded your existing cloud planner.")
+        } else if (localRevision === serverRevision) {
+          setAutoSyncEnabled(true)
+          setSyncPhase("idle")
+          setStatusMessage("Signed in. This browser already matches the latest cloud revision.")
+        } else if (hasUnsyncedChanges) {
+          setSyncState({ accountEmail: session.user?.email || email, revision: serverRevision, cloudUpdatedAt: session.planner?.updatedAt || "" })
+          setAutoSyncEnabled(false)
+          setSyncPhase("needs-choice")
+          setStatusMessage("Signed in. This browser has unsynced edits, so choose whether to keep local changes or load the cloud copy.")
+        } else {
+          await pullCloudToLocal("Signed in and loaded the latest cloud revision.")
         }
       }
 
@@ -231,8 +340,8 @@ const SaveLoadData: React.FC = () => {
       await signOut()
       setIsAuthenticated(false)
       setSessionEmail("")
-      setCloudUpdatedAt("")
       setAutoSyncEnabled(false)
+      clearSyncState()
       setSyncPhase("offline")
       setStatusMessage("Signed out. This browser still keeps its local planner copy.")
     } catch (error) {
@@ -245,7 +354,7 @@ const SaveLoadData: React.FC = () => {
       <div className="panel-heading-row save-header-stack">
         <div>
           <p className="section-kicker">Backup & sync</p>
-          <h2>Keep local speed, add real account-backed cloud save</h2>
+          <h2>Keep local speed, add calmer account-backed sync</h2>
         </div>
         <div className={`sync-pill sync-${syncPhase}`}>
           <span className="sync-dot" />
@@ -259,14 +368,14 @@ const SaveLoadData: React.FC = () => {
           {isAuthenticated ? (
             <>
               <p>
-                Signed in as <strong>{sessionEmail}</strong> with an HttpOnly session cookie. Your database credentials stay
-                on the server, and your cloud planner is tied to your account instead of a browser-only ID.
+                Signed in as <strong>{sessionEmail}</strong>. The browser stays fast, while the server keeps the authoritative cloud
+                revision for your account. No database secrets ever reach the client.
               </p>
               <div className="action-row wrap">
-                <button className="primary-button" onClick={pushLocalToCloud}>
+                <button className="primary-button" onClick={() => pushLocalToCloud()}>
                   Save this browser copy to cloud
                 </button>
-                <button className="ghost-button" onClick={pullCloudToLocal}>
+                <button className="ghost-button" onClick={() => pullCloudToLocal()}>
                   Load cloud into this browser
                 </button>
                 <button className="ghost-button" onClick={() => setAutoSyncEnabled((current) => !current)}>
@@ -280,8 +389,8 @@ const SaveLoadData: React.FC = () => {
           ) : (
             <>
               <p>
-                Create a simple account to claim your planner and sync it across devices. This is intentionally lightweight:
-                email + password, server-side session cookie, one personal planner per account.
+                Stay local if you want. If you want cross-device continuity, create a lightweight account and claim one personal
+                planner with email, password, and a server-side session cookie.
               </p>
               <div className="segmented-control auth-mode-toggle">
                 <button className={`segment${authMode === "register" ? " active" : ""}`} onClick={() => setAuthMode("register")}>
@@ -321,20 +430,28 @@ const SaveLoadData: React.FC = () => {
           <p>{storageSummary}</p>
           <p>{cloudSummary}</p>
           <p>
-            Local edits always save immediately in this browser. Cloud sync is layered on top so the app still feels fast,
-            resilient, and usable offline.
+            Local edits always save immediately in this browser. Cloud sync only layers on top, so the app stays usable offline
+            and doesn&apos;t panic over timestamps alone.
           </p>
+          {isAuthenticated ? (
+            <p className="mini-note">
+              {hasUnsyncedChanges
+                ? "This browser has local edits that haven’t reached the cloud yet."
+                : "This browser is in step with the latest known cloud revision."}
+            </p>
+          ) : null}
           {syncPhase === "needs-choice" ? (
             <div className="choice-card">
-              <strong>Before auto-sync starts, choose your direction</strong>
+              <strong>Before auto-sync resumes, choose your source of truth</strong>
               <p>
-                The cloud planner and this browser planner don&apos;t look identical yet. Pick the copy you want to keep.
+                The app detected a real revision mismatch, not just a clock difference. Pick the copy you trust, then auto-sync
+                will continue from there.
               </p>
               <div className="action-row wrap">
-                <button className="primary-button" onClick={pullCloudToLocal}>
+                <button className="primary-button" onClick={() => pullCloudToLocal("Loaded the latest cloud revision here.")}>
                   Use cloud planner here
                 </button>
-                <button className="ghost-button" onClick={pushLocalToCloud}>
+                <button className="ghost-button" onClick={() => pushLocalToCloud("This browser copy replaced the older cloud revision.")}>
                   Keep this browser copy
                 </button>
               </div>
@@ -396,8 +513,8 @@ const SaveLoadData: React.FC = () => {
       </div>
 
       <p className="footer-note">
-        Best default: let the browser handle day-to-day autosave, keep account sync on for continuity across devices, and
-        export JSON for portable backups you control.
+        Best default: let browser autosave handle day-to-day editing, use account sync for continuity, and keep occasional JSON
+        exports for portable backups you control.
       </p>
     </section>
   )

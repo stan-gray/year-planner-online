@@ -21,6 +21,13 @@ export interface RoutineTemplate {
   note: string
 }
 
+export interface PlannerSyncState {
+  accountEmail: string
+  revision: number | null
+  cloudUpdatedAt: string
+  lastSyncedLocalUpdatedAt: string
+}
+
 export interface PlannerData {
   selectedYear: number
   dateCells: Record<string, DateCellData>
@@ -34,6 +41,7 @@ export interface PlannerData {
   onboardingCompleted: boolean
   updatedAt: string
   version: string
+  sync: PlannerSyncState
 }
 
 export interface SaveSnapshot {
@@ -74,6 +82,11 @@ interface CalendarContextType {
   createSnapshot: (label?: string) => void
   restoreSnapshot: (snapshotId: string) => boolean
   dismissOnboarding: () => void
+  setSyncState: (updates: Partial<PlannerSyncState>) => void
+  clearSyncState: () => void
+  markSynced: (sync: { accountEmail: string; revision: number | null; cloudUpdatedAt: string }) => void
+  hasUnsyncedChanges: boolean
+  isPlannerEmpty: boolean
 }
 
 const CalendarContext = createContext<CalendarContextType | undefined>(undefined)
@@ -82,10 +95,11 @@ interface CalendarProviderProps {
   children: React.ReactNode
 }
 
-const STORAGE_KEY = "year_planner_data_v3"
+const STORAGE_KEY = "year_planner_data_v4"
 const LEGACY_STORAGE_KEY = "calendar_data"
+const PREVIOUS_STORAGE_KEY = "year_planner_data_v3"
 const SNAPSHOTS_KEY = "year_planner_snapshots_v1"
-const APP_VERSION = "3.0"
+const APP_VERSION = "4.1"
 const SNAPSHOT_LIMIT = 8
 
 const currentYear = new Date().getFullYear()
@@ -126,11 +140,25 @@ const starterRoutines = (): RoutineTemplate[] => [
   },
 ]
 
+const emptySyncState = (): PlannerSyncState => ({
+  accountEmail: "",
+  revision: null,
+  cloudUpdatedAt: "",
+  lastSyncedLocalUpdatedAt: "",
+})
+
+const getDefaultView = (): CalendarView => {
+  if (typeof window !== "undefined" && window.innerWidth <= 860) {
+    return "Classic"
+  }
+  return "Linear"
+}
+
 const defaultPlannerData = (year = currentYear): PlannerData => ({
   selectedYear: year,
   dateCells: {},
   selectedColorTexture: "blue",
-  selectedView: "Linear",
+  selectedView: getDefaultView(),
   yearlyVision: "",
   successDefinition: "",
   quarterPlans: emptyQuarterPlans(),
@@ -139,6 +167,7 @@ const defaultPlannerData = (year = currentYear): PlannerData => ({
   onboardingCompleted: false,
   updatedAt: new Date().toISOString(),
   version: APP_VERSION,
+  sync: emptySyncState(),
 })
 
 const parseDateCells = (dateCells: Record<string, DateCellData> | undefined) => new Map(Object.entries(dateCells || {}))
@@ -186,14 +215,26 @@ const normalizePlannerData = (raw: any): PlannerData => {
     onboardingCompleted: Boolean(raw?.onboardingCompleted),
     updatedAt: typeof raw?.updatedAt === "string" ? raw.updatedAt : base.updatedAt,
     version: APP_VERSION,
+    sync: {
+      accountEmail: typeof raw?.sync?.accountEmail === "string" ? raw.sync.accountEmail : "",
+      revision: Number.isInteger(raw?.sync?.revision) ? raw.sync.revision : null,
+      cloudUpdatedAt: typeof raw?.sync?.cloudUpdatedAt === "string" ? raw.sync.cloudUpdatedAt : "",
+      lastSyncedLocalUpdatedAt:
+        typeof raw?.sync?.lastSyncedLocalUpdatedAt === "string" ? raw.sync.lastSyncedLocalUpdatedAt : "",
+    },
   }
 }
 
 const readStoredPlanner = (): PlannerData => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      return normalizePlannerData(JSON.parse(stored))
+    const current = localStorage.getItem(STORAGE_KEY)
+    if (current) {
+      return normalizePlannerData(JSON.parse(current))
+    }
+
+    const previous = localStorage.getItem(PREVIOUS_STORAGE_KEY)
+    if (previous) {
+      return normalizePlannerData(JSON.parse(previous))
     }
 
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
@@ -391,7 +432,7 @@ export const CalendarProvider: React.FC<CalendarProviderProps> = ({ children }) 
   const restoreSnapshot = (snapshotId: string) => {
     const snapshot = saveSnapshots.find((entry) => entry.id === snapshotId)
     if (!snapshot) return false
-    setPlannerData(snapshot.data)
+    setPlannerData(normalizePlannerData(snapshot.data))
     return true
   }
 
@@ -403,7 +444,46 @@ export const CalendarProvider: React.FC<CalendarProviderProps> = ({ children }) 
 
   const dismissOnboarding = () => updatePlannerData((current) => ({ ...current, onboardingCompleted: true }))
 
+  const setSyncState = (updates: Partial<PlannerSyncState>) => {
+    setPlannerData((current) =>
+      normalizePlannerData({
+        ...current,
+        sync: { ...current.sync, ...updates },
+      })
+    )
+  }
+
+  const clearSyncState = () => {
+    setPlannerData((current) =>
+      normalizePlannerData({
+        ...current,
+        sync: emptySyncState(),
+      })
+    )
+  }
+
+  const markSynced = (sync: { accountEmail: string; revision: number | null; cloudUpdatedAt: string }) => {
+    setPlannerData((current) =>
+      normalizePlannerData({
+        ...current,
+        sync: {
+          accountEmail: sync.accountEmail,
+          revision: sync.revision,
+          cloudUpdatedAt: sync.cloudUpdatedAt,
+          lastSyncedLocalUpdatedAt: current.updatedAt,
+        },
+      })
+    )
+  }
+
   const dateCells = useMemo(() => parseDateCells(plannerData.dateCells), [plannerData.dateCells])
+  const hasUnsyncedChanges = Boolean(plannerData.sync.accountEmail) && plannerData.sync.lastSyncedLocalUpdatedAt !== plannerData.updatedAt
+  const isPlannerEmpty =
+    Object.keys(plannerData.dateCells).length === 0 &&
+    !plannerData.yearlyVision.trim() &&
+    !plannerData.successDefinition.trim() &&
+    plannerData.quarterPlans.every((plan) => !plan.focus.trim()) &&
+    plannerData.monthPlans.every((plan) => !plan.theme.trim() && !plan.highlight.trim())
 
   const value: CalendarContextType = {
     plannerData,
@@ -436,6 +516,11 @@ export const CalendarProvider: React.FC<CalendarProviderProps> = ({ children }) 
     createSnapshot,
     restoreSnapshot,
     dismissOnboarding,
+    setSyncState,
+    clearSyncState,
+    markSynced,
+    hasUnsyncedChanges,
+    isPlannerEmpty,
   }
 
   return <CalendarContext.Provider value={value}>{children}</CalendarContext.Provider>

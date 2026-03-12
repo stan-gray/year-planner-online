@@ -1,5 +1,4 @@
 const {
-  APP_VERSION,
   getPool,
   ensureSchema,
   sendJson,
@@ -10,6 +9,7 @@ const {
   randomId,
   hashPassword,
   createSession,
+  upsertAccountPlanner,
 } = require("../_lib/server")
 
 module.exports = async (request, response) => {
@@ -61,22 +61,17 @@ module.exports = async (request, response) => {
       [userId, email, passwordHash, salt]
     )
 
+    let planner = null
     if (plannerData) {
-      await db.query(
-        `INSERT INTO planner_states (planner_id, owner_user_id, planner_data, app_version)
-         VALUES ($1, $2, $3::jsonb, $4)
-         ON CONFLICT (owner_user_id)
-         WHERE owner_user_id IS NOT NULL
-         DO UPDATE SET planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW()
-         RETURNING updated_at`,
-        [`acct:${userId}`, userId, JSON.stringify(plannerData), APP_VERSION]
-      )
+      const result = await upsertAccountPlanner({ userId, plannerData, baseRevision: null })
+      planner = result.record
     }
 
     await createSession(response, userId)
     sendJson(response, 201, {
       ok: true,
       user: { email },
+      planner,
       hasRemotePlanner: Boolean(plannerData),
     })
   } catch (error) {

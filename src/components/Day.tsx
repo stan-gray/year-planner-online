@@ -85,11 +85,13 @@ const Day: React.FC<DayProps> = ({
     }
   }
 
-  const handleDayNumberClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const openNoteEditor = (e?: React.SyntheticEvent) => {
+    e?.stopPropagation()
     if (onCustomTextChange) {
       setIsCreatingCustomText(true)
-      onCustomTextChange("")
+      if (!customText.trim()) {
+        onCustomTextChange("")
+      }
     }
   }
 
@@ -148,7 +150,7 @@ const Day: React.FC<DayProps> = ({
         border: isToday(date) ? `1.5px solid ${UI_COLORS.border.inset}` : "none",
         boxShadow: isToday(date) ? "inset 0 0 0 1px rgba(255,255,255,0.65)" : "inset 0 1px 0 rgba(255,255,255,0.16)",
         boxSizing: "border-box",
-        touchAction: "auto",
+        touchAction: "manipulation",
         ...getTextureStyles(),
       }}
     >
@@ -161,8 +163,12 @@ const Day: React.FC<DayProps> = ({
           overflowDirection={customTextOverflow}
         />
       ) : (
-        <div
-          onClick={handleDayNumberClick}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            openNoteEditor()
+          }}
           style={{
             cursor: onCustomTextChange ? "text" : "default",
             padding: "2px 5px",
@@ -173,23 +179,44 @@ const Day: React.FC<DayProps> = ({
             fontSize: "inherit",
             lineHeight: "1",
             color: isWeekend(date) ? UI_COLORS.text.secondary : UI_COLORS.text.primary,
+            background: "transparent",
+            border: "none",
           }}
-          onMouseEnter={(e) => {
-            if (onCustomTextChange) {
-              e.currentTarget.style.fontWeight = "700"
-              e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.7)"
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (onCustomTextChange) {
-              e.currentTarget.style.fontWeight = "600"
-              e.currentTarget.style.backgroundColor = "transparent"
-            }
-          }}
+          aria-label={`Add note for ${date.toDateString()}`}
+          title="Add note"
         >
           {dayNumber}
-        </div>
+        </button>
       )}
+
+      {onCustomTextChange ? (
+        <button
+          type="button"
+          onClick={openNoteEditor}
+          style={{
+            position: "absolute",
+            right: "2px",
+            bottom: "2px",
+            width: "18px",
+            height: "18px",
+            borderRadius: "999px",
+            border: "1px solid rgba(15,23,42,0.1)",
+            background: hasCustomText ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.72)",
+            color: UI_COLORS.text.secondary,
+            fontSize: "10px",
+            lineHeight: 1,
+            padding: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 5,
+          }}
+          aria-label={hasCustomText ? `Edit note for ${date.toDateString()}` : `Add note for ${date.toDateString()}`}
+          title={hasCustomText ? "Edit note" : "Add note"}
+        >
+          ✎
+        </button>
+      ) : null}
     </div>
   )
 }

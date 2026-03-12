@@ -34,7 +34,7 @@ module.exports = async (request, response) => {
       }
 
       const planner = await db.query(
-        `SELECT updated_at FROM planner_states WHERE owner_user_id = $1 LIMIT 1`,
+        `SELECT updated_at, server_revision FROM planner_states WHERE owner_user_id = $1 LIMIT 1`,
         [user.id]
       )
 
@@ -42,8 +42,8 @@ module.exports = async (request, response) => {
         authenticated: true,
         user: { email: user.email },
         planner: planner.rowCount
-          ? { updatedAt: planner.rows[0].updated_at, syncMode: "account" }
-          : { updatedAt: null, syncMode: "account" },
+          ? { updatedAt: planner.rows[0].updated_at, revision: Number(planner.rows[0].server_revision || 1), syncMode: "account" }
+          : { updatedAt: null, revision: null, syncMode: "account" },
       })
       return
     }
@@ -71,13 +71,13 @@ module.exports = async (request, response) => {
       }
 
       await createSession(response, user.id)
-      const planner = await db.query(`SELECT updated_at FROM planner_states WHERE owner_user_id = $1 LIMIT 1`, [user.id])
+      const planner = await db.query(`SELECT updated_at, server_revision FROM planner_states WHERE owner_user_id = $1 LIMIT 1`, [user.id])
       sendJson(response, 200, {
         ok: true,
         user: { email: user.email },
         planner: planner.rowCount
-          ? { updatedAt: planner.rows[0].updated_at, syncMode: "account" }
-          : { updatedAt: null, syncMode: "account" },
+          ? { updatedAt: planner.rows[0].updated_at, revision: Number(planner.rows[0].server_revision || 1), syncMode: "account" }
+          : { updatedAt: null, revision: null, syncMode: "account" },
         version: APP_VERSION,
       })
       return

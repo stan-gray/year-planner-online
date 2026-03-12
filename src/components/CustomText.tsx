@@ -17,57 +17,29 @@ const CustomText: React.FC<CustomTextProps> = ({
   overflowDirection = "overflow-x",
 }) => {
   const [isEditing, setIsEditing] = useState(false)
-  const [editText, setEditText] = useState(text)
-  const textRef = useRef<HTMLDivElement>(null)
-
-  const handleTextClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    setIsEditing(true)
-    setEditText(text)
-  }
-
-  const handleTextEdit = () => {
-    const newText = textRef.current?.textContent || ""
-    onTextChange(newText)
-    setIsEditing(false)
-  }
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      handleTextEdit()
-    } else if (e.key === "Escape") {
-      setIsEditing(false)
-      setEditText(text)
-      if (text === "") {
-        onTextChange("")
-      }
-    }
-  }
+  const [draft, setDraft] = useState(text)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    if (isEditing && textRef.current) {
-      textRef.current.focus()
-      const range = document.createRange()
-      const selection = window.getSelection()
-      range.selectNodeContents(textRef.current)
-      range.collapse(false)
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-    }
-  }, [isEditing])
-
-  useEffect(() => {
-    setEditText(text)
+    setDraft(text)
   }, [text])
 
   useEffect(() => {
-    if (text === "" && !isEditing) {
-      setIsEditing(true)
-      setEditText("")
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus()
+      textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length)
     }
-  }, [text, isEditing])
+  }, [isEditing])
+
+  const commit = () => {
+    onTextChange(draft.trim())
+    setIsEditing(false)
+  }
+
+  const cancel = () => {
+    setDraft(text)
+    setIsEditing(false)
+  }
 
   const getOverflowStyles = (): React.CSSProperties => {
     switch (overflowDirection) {
@@ -77,11 +49,8 @@ const CustomText: React.FC<CustomTextProps> = ({
           wordWrap: "break-word",
           wordBreak: "break-word",
           position: "absolute",
-          top: "1px",
-          left: "1px",
-          right: "1px",
+          inset: "1px",
           minWidth: "calc(100% - 2px)",
-          zIndex: isEditing ? 10 : 1,
         }
       case "no-overflow":
         return {
@@ -93,7 +62,6 @@ const CustomText: React.FC<CustomTextProps> = ({
           left: "6px",
           right: "6px",
           transform: "translateY(-50%)",
-          zIndex: isEditing ? 10 : 1,
         }
       case "overflow-x":
       default:
@@ -104,28 +72,59 @@ const CustomText: React.FC<CustomTextProps> = ({
           top: "50%",
           left: "6px",
           transform: "translateY(-50%)",
-          zIndex: isEditing ? 10 : 1,
         }
     }
   }
 
-  if (text === "" && !isEditing) {
-    return null
+  if (!text && !isEditing) return null
+
+  if (isEditing) {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: "1px",
+          zIndex: 12,
+          background: "rgba(255,255,255,0.98)",
+          border: `1px solid ${UI_COLORS.button.primary.normal}`,
+          borderRadius: "10px",
+          boxShadow: "0 10px 24px rgba(15,23,42,0.16)",
+          padding: "4px",
+          display: "grid",
+          gap: "4px",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault()
+              commit()
+            }
+            if (event.key === "Escape") {
+              event.preventDefault()
+              cancel()
+            }
+          }}
+          rows={3}
+          placeholder="Add note"
+          style={{ minHeight: "58px", padding: "6px 8px", fontSize: "13px", borderRadius: "8px" }}
+        />
+      </div>
+    )
   }
 
   return (
-    <div
-      ref={textRef}
-      contentEditable={isEditing}
-      suppressContentEditableWarning={true}
-      onClick={handleTextClick}
-      onBlur={(e) => {
-        e.stopPropagation()
-        handleTextEdit()
-      }}
-      onKeyDown={(e) => {
-        e.stopPropagation()
-        handleKeyPress(e)
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        setIsEditing(true)
       }}
       style={{
         fontSize: "13px",
@@ -133,31 +132,28 @@ const CustomText: React.FC<CustomTextProps> = ({
         fontWeight: 700,
         letterSpacing: "-0.01em",
         color: UI_COLORS.text.primary,
-        backgroundColor: backgroundColor,
+        backgroundColor,
         padding: "3px 6px",
         borderRadius: "8px",
-        cursor: isEditing ? "text" : "pointer",
+        cursor: "text",
         outline: "none",
-        border: isEditing ? `1px solid ${UI_COLORS.button.primary.normal}` : "1px solid rgba(255,255,255,0.2)",
-        boxShadow: isEditing ? "0 0 0 4px rgba(47,91,234,0.14)" : "0 1px 0 rgba(255,255,255,0.35)",
+        border: "1px solid rgba(255,255,255,0.2)",
+        boxShadow: "0 1px 0 rgba(255,255,255,0.35)",
         minHeight: "20px",
+        textAlign: "left",
         ...getOverflowStyles(),
       }}
       onMouseEnter={(e) => {
-        e.stopPropagation()
-        if (!isEditing) {
-          e.currentTarget.style.backgroundColor = hoverBackgroundColor
-        }
+        e.currentTarget.style.backgroundColor = hoverBackgroundColor
       }}
       onMouseLeave={(e) => {
-        e.stopPropagation()
-        if (!isEditing) {
-          e.currentTarget.style.backgroundColor = backgroundColor
-        }
+        e.currentTarget.style.backgroundColor = backgroundColor
       }}
+      aria-label={text ? `Edit note: ${text}` : "Add note"}
+      title="Edit note"
     >
-      {isEditing ? editText : text}
-    </div>
+      {text}
+    </button>
   )
 }
 

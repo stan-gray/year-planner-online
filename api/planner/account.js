@@ -1,4 +1,12 @@
-const { APP_VERSION, getPool, ensureSchema, sendJson, getCurrentUser, parseJsonBody } = require("../_lib/server")
+const {
+  ensureSchema,
+  sendJson,
+  getCurrentUser,
+  parseJsonBody,
+  getPool,
+  formatPlannerRow,
+  upsertAccountPlanner,
+} = require("../_lib/server")
 
 module.exports = async (request, response) => {
   response.setHeader("Cache-Control", "no-store")
@@ -23,7 +31,7 @@ module.exports = async (request, response) => {
 
     if (request.method === "GET") {
       const result = await db.query(
-        `SELECT planner_id, planner_data, app_version, updated_at
+        `SELECT planner_id, planner_data, app_version, updated_at, server_revision
          FROM planner_states
          WHERE owner_user_id = $1
          LIMIT 1`,
@@ -35,13 +43,7 @@ module.exports = async (request, response) => {
         return
       }
 
-      const row = result.rows[0]
-      sendJson(response, 200, {
-        plannerId: row.planner_id,
-        plannerData: row.planner_data,
-        version: row.app_version,
-        updatedAt: row.updated_at,
-      })
+      sendJson(response, 200, formatPlannerRow(result.rows[0]))
       return
     }
 
@@ -53,24 +55,24 @@ module.exports = async (request, response) => {
         return
       }
 
-      const plannerId = `acct:${user.id}`
-      const result = await db.query(
-        `INSERT INTO planner_states (planner_id, owner_user_id, planner_data, app_version)
-         VALUES ($1, $2, $3::jsonb, $4)
-         ON CONFLICT (owner_user_id)
-         WHERE owner_user_id IS NOT NULL
-         DO UPDATE SET planner_id = EXCLUDED.planner_id, planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW()
-         RETURNING planner_id, planner_data, app_version, updated_at`,
-        [plannerId, user.id, JSON.stringify(plannerData), APP_VERSION]
-      )
+      const result = await upsertAccountPlanner({
+        userId: user.id,
+        plannerData,
+        baseRevision: body.baseRevision,
+      })
 
-      const row = result.rows[0]
+      if (!result.ok) {
+        sendJson(response, 409, {
+          error: "Cloud planner changed somewhere else. Review the latest cloud copy before overwriting it.",
+          code: "REVISION_CONFLICT",
+          current: result.current,
+        })
+        return
+      }
+
       sendJson(response, 200, {
         ok: true,
-        plannerId: row.planner_id,
-        plannerData: row.planner_data,
-        version: row.app_version,
-        updatedAt: row.updated_at,
+        ...result.record,
       })
       return
     }

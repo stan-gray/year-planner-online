@@ -1,4 +1,4 @@
-const { APP_VERSION, ensureSchema, getPool, sendJson } = require("../_lib/server")
+const { APP_VERSION, ensureSchema, getPool, sendJson, parseJsonBody, LEGACY_ANON_MODE, formatPlannerRow } = require("../_lib/server")
 
 const MAX_ID_LENGTH = 128
 
@@ -12,6 +12,7 @@ module.exports = async (request, response) => {
   response.setHeader("Access-Control-Allow-Origin", "*")
   response.setHeader("Access-Control-Allow-Methods", "GET,PUT,OPTIONS")
   response.setHeader("Access-Control-Allow-Headers", "Content-Type")
+  response.setHeader("X-Year-Planner-Legacy-Route", "deprecated")
 
   if (request.method === "OPTIONS") {
     response.status(204).end()
@@ -30,7 +31,7 @@ module.exports = async (request, response) => {
 
     if (request.method === "GET") {
       const result = await db.query(
-        `SELECT planner_id, planner_data, app_version, updated_at FROM planner_states WHERE planner_id = $1 LIMIT 1`,
+        `SELECT planner_id, planner_data, app_version, updated_at, server_revision, owner_user_id FROM planner_states WHERE planner_id = $1 LIMIT 1`,
         [plannerId]
       )
 
@@ -40,39 +41,62 @@ module.exports = async (request, response) => {
       }
 
       const row = result.rows[0]
+      if (row.owner_user_id) {
+        sendJson(response, 403, { error: "This planner now belongs to an account. Sign in through the main app to access it." })
+        return
+      }
+
       sendJson(response, 200, {
-        plannerId: row.planner_id,
-        plannerData: row.planner_data,
-        version: row.app_version,
-        updatedAt: row.updated_at,
+        ...formatPlannerRow(row),
+        legacy: true,
+        deprecated: true,
       })
       return
     }
 
     if (request.method === "PUT") {
-      const plannerData = request.body && typeof request.body === "object" ? request.body.plannerData : null
+      const body = parseJsonBody(request)
+      const plannerData = body.plannerData
 
       if (!plannerData || typeof plannerData !== "object" || Array.isArray(plannerData)) {
         sendJson(response, 400, { error: "plannerData must be a JSON object." })
         return
       }
 
+      if (LEGACY_ANON_MODE !== "write") {
+        sendJson(response, 410, {
+          error: "Anonymous planner writes are deprecated. Create an account and use /api/planner/account instead.",
+          code: "LEGACY_ROUTE_READONLY",
+        })
+        return
+      }
+
+      const existing = await db.query(`SELECT owner_user_id FROM planner_states WHERE planner_id = $1 LIMIT 1`, [plannerId])
+      if (existing.rowCount > 0 && existing.rows[0].owner_user_id) {
+        sendJson(response, 403, { error: "This planner now belongs to an account and can no longer be overwritten anonymously." })
+        return
+      }
+
       const result = await db.query(
-        `INSERT INTO planner_states (planner_id, planner_data, app_version)
-         VALUES ($1, $2::jsonb, $3)
+        `INSERT INTO planner_states (planner_id, planner_data, app_version, server_revision)
+         VALUES ($1, $2::jsonb, $3, 1)
          ON CONFLICT (planner_id)
-         DO UPDATE SET planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW()
-         RETURNING planner_id, planner_data, app_version, updated_at`,
+         DO UPDATE SET planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW(), server_revision = planner_states.server_revision + 1
+         WHERE planner_states.owner_user_id IS NULL
+         RETURNING planner_id, planner_data, app_version, updated_at, server_revision`,
         [plannerId, JSON.stringify(plannerData), APP_VERSION]
       )
 
-      const row = result.rows[0]
+      if (result.rowCount === 0) {
+        sendJson(response, 403, { error: "This planner now belongs to an account and can no longer be overwritten anonymously." })
+        return
+      }
+
       sendJson(response, 200, {
         ok: true,
-        plannerId: row.planner_id,
-        plannerData: row.planner_data,
-        version: row.app_version,
-        updatedAt: row.updated_at,
+        ...formatPlannerRow(result.rows[0]),
+        legacy: true,
+        deprecated: true,
       })
       return
     }
