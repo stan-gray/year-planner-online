@@ -1,11 +1,4 @@
-const { APP_VERSION, ensureSchema, getPool, sendJson } = require("../_lib/server")
-
-const MAX_ID_LENGTH = 128
-
-function normalizePlannerId(value) {
-  if (typeof value !== "string") return ""
-  return value.trim().slice(0, MAX_ID_LENGTH)
-}
+const { APP_VERSION, getPool, ensureSchema, sendJson, getCurrentUser, parseJsonBody } = require("../_lib/server")
 
 module.exports = async (request, response) => {
   response.setHeader("Cache-Control", "no-store")
@@ -18,24 +11,27 @@ module.exports = async (request, response) => {
     return
   }
 
-  const plannerId = normalizePlannerId(request.query.plannerId)
-  if (!plannerId) {
-    sendJson(response, 400, { error: "Missing planner id." })
-    return
-  }
-
   try {
     await ensureSchema()
     const db = getPool()
+    const user = await getCurrentUser(request)
+
+    if (!user) {
+      sendJson(response, 401, { error: "Sign in to access your planner." })
+      return
+    }
 
     if (request.method === "GET") {
       const result = await db.query(
-        `SELECT planner_id, planner_data, app_version, updated_at FROM planner_states WHERE planner_id = $1 LIMIT 1`,
-        [plannerId]
+        `SELECT planner_id, planner_data, app_version, updated_at
+         FROM planner_states
+         WHERE owner_user_id = $1
+         LIMIT 1`,
+        [user.id]
       )
 
       if (result.rowCount === 0) {
-        sendJson(response, 404, { error: "Planner not found." })
+        sendJson(response, 404, { error: "No cloud planner found for this account yet." })
         return
       }
 
@@ -50,20 +46,22 @@ module.exports = async (request, response) => {
     }
 
     if (request.method === "PUT") {
-      const plannerData = request.body && typeof request.body === "object" ? request.body.plannerData : null
-
+      const body = parseJsonBody(request)
+      const plannerData = body.plannerData
       if (!plannerData || typeof plannerData !== "object" || Array.isArray(plannerData)) {
         sendJson(response, 400, { error: "plannerData must be a JSON object." })
         return
       }
 
+      const plannerId = `acct:${user.id}`
       const result = await db.query(
-        `INSERT INTO planner_states (planner_id, planner_data, app_version)
-         VALUES ($1, $2::jsonb, $3)
-         ON CONFLICT (planner_id)
-         DO UPDATE SET planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW()
+        `INSERT INTO planner_states (planner_id, owner_user_id, planner_data, app_version)
+         VALUES ($1, $2, $3::jsonb, $4)
+         ON CONFLICT (owner_user_id)
+         WHERE owner_user_id IS NOT NULL
+         DO UPDATE SET planner_id = EXCLUDED.planner_id, planner_data = EXCLUDED.planner_data, app_version = EXCLUDED.app_version, updated_at = NOW()
          RETURNING planner_id, planner_data, app_version, updated_at`,
-        [plannerId, JSON.stringify(plannerData), APP_VERSION]
+        [plannerId, user.id, JSON.stringify(plannerData), APP_VERSION]
       )
 
       const row = result.rows[0]
@@ -79,7 +77,7 @@ module.exports = async (request, response) => {
 
     sendJson(response, 405, { error: "Method not allowed." })
   } catch (error) {
-    console.error("Planner API error", error)
+    console.error("Account planner error", error)
     sendJson(response, 500, { error: "Unable to access planner storage right now." })
   }
 }
