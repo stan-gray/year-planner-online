@@ -70,7 +70,8 @@ module.exports = async (request, response) => {
     await createSession(response, userId)
     sendJson(response, 201, {
       ok: true,
-      user: { email },
+      authenticated: true,
+      user: { email, createdAt: new Date().toISOString(), recoveryCodesGeneratedAt: null, activeRecoveryCodes: 0, hasRecoveryKit: false },
       planner,
       hasRemotePlanner: Boolean(plannerData),
     })

@@ -1,10 +1,11 @@
 const { Pool } = require("pg")
 const crypto = require("crypto")
 
-const APP_VERSION = "4.1"
+const APP_VERSION = "4.2"
 const SESSION_COOKIE = "year_planner_session"
 const SESSION_TTL_DAYS = 30
 const LEGACY_ANON_MODE = process.env.LEGACY_ANON_PLANNER_MODE || "readonly"
+const RECOVERY_CODE_COUNT = 6
 
 let pool
 let schemaReadyPromise
@@ -34,6 +35,8 @@ async function ensureSchema() {
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        recovery_codes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        recovery_codes_generated_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -55,6 +58,8 @@ async function ensureSchema() {
         server_revision BIGINT NOT NULL DEFAULT 1
       );
 
+      ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS recovery_codes_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS recovery_codes_generated_at TIMESTAMPTZ;
       ALTER TABLE planner_states ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES user_accounts(id) ON DELETE SET NULL;
       ALTER TABLE planner_states ADD COLUMN IF NOT EXISTS server_revision BIGINT NOT NULL DEFAULT 1;
       CREATE UNIQUE INDEX IF NOT EXISTS planner_states_owner_user_id_key ON planner_states(owner_user_id) WHERE owner_user_id IS NOT NULL;
@@ -94,6 +99,11 @@ function readCookies(request) {
   }, {})
 }
 
+function getSessionIdFromRequest(request) {
+  const cookies = readCookies(request)
+  return cookies[SESSION_COOKIE] || ""
+}
+
 function setSessionCookie(response, sessionId) {
   const maxAge = SESSION_TTL_DAYS * 24 * 60 * 60
   response.setHeader(
@@ -131,6 +141,37 @@ function hashPassword(password, salt) {
   })
 }
 
+function hashRecoveryCode(code) {
+  return crypto.createHash("sha256").update(code).digest("hex")
+}
+
+function createRecoveryKit() {
+  const createdAt = new Date().toISOString()
+  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, (_, index) => {
+    const raw = `${crypto.randomBytes(2).toString("hex")}-${crypto.randomBytes(2).toString("hex")}-${crypto.randomBytes(2).toString("hex")}`.toUpperCase()
+    return {
+      label: `Recovery code ${index + 1}`,
+      raw,
+      stored: {
+        id: randomId("recovery"),
+        hash: hashRecoveryCode(raw),
+        createdAt,
+        usedAt: null,
+      },
+    }
+  })
+
+  return {
+    createdAt,
+    rawCodes: codes.map((entry) => entry.raw),
+    storedCodes: codes.map((entry) => entry.stored),
+  }
+}
+
+function countActiveRecoveryCodes(recoveryCodes) {
+  return Array.isArray(recoveryCodes) ? recoveryCodes.filter((entry) => entry && !entry.usedAt).length : 0
+}
+
 function normalizeBaseRevision(value) {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value
   if (typeof value === "string" && /^\d+$/.test(value.trim())) return parseInt(value.trim(), 10)
@@ -145,6 +186,20 @@ function formatPlannerRow(row) {
     version: row.app_version,
     updatedAt: row.updated_at,
     revision: Number(row.server_revision || 1),
+  }
+}
+
+function formatAccountRow(row) {
+  if (!row) return null
+  const activeRecoveryCodes = countActiveRecoveryCodes(row.recovery_codes_json)
+  return {
+    id: row.id,
+    email: row.email,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    recoveryCodesGeneratedAt: row.recovery_codes_generated_at,
+    activeRecoveryCodes,
+    hasRecoveryKit: activeRecoveryCodes > 0,
   }
 }
 
@@ -224,14 +279,13 @@ async function createSession(response, userId) {
 }
 
 async function getCurrentUser(request) {
-  const cookies = readCookies(request)
-  const sessionId = cookies[SESSION_COOKIE]
+  const sessionId = getSessionIdFromRequest(request)
   if (!sessionId) return null
 
   await ensureSchema()
   const db = getPool()
   const result = await db.query(
-    `SELECT u.id, u.email, s.id AS session_id
+    `SELECT u.id, u.email, u.created_at, u.updated_at, u.recovery_codes_json, u.recovery_codes_generated_at, s.id AS session_id
      FROM user_sessions s
      JOIN user_accounts u ON u.id = s.user_id
      WHERE s.id = $1 AND s.expires_at > NOW()
@@ -239,12 +293,12 @@ async function getCurrentUser(request) {
     [sessionId]
   )
 
-  return result.rows[0] || null
+  const row = result.rows[0]
+  return row ? { ...formatAccountRow(row), sessionId: row.session_id } : null
 }
 
 async function destroySession(request, response) {
-  const cookies = readCookies(request)
-  const sessionId = cookies[SESSION_COOKIE]
+  const sessionId = getSessionIdFromRequest(request)
   clearSessionCookie(response)
   if (!sessionId) return
   try {
@@ -255,10 +309,21 @@ async function destroySession(request, response) {
   }
 }
 
+async function deleteSessionsForUser(userId, options = {}) {
+  await ensureSchema()
+  const db = getPool()
+  if (options.excludeSessionId) {
+    await db.query(`DELETE FROM user_sessions WHERE user_id = $1 AND id <> $2`, [userId, options.excludeSessionId])
+    return
+  }
+  await db.query(`DELETE FROM user_sessions WHERE user_id = $1`, [userId])
+}
+
 module.exports = {
   APP_VERSION,
   SESSION_COOKIE,
   LEGACY_ANON_MODE,
+  RECOVERY_CODE_COUNT,
   getPool,
   ensureSchema,
   sendJson,
@@ -268,11 +333,17 @@ module.exports = {
   validatePassword,
   normalizeBaseRevision,
   formatPlannerRow,
+  formatAccountRow,
   randomId,
   hashPassword,
+  hashRecoveryCode,
+  createRecoveryKit,
+  countActiveRecoveryCodes,
   upsertAccountPlanner,
   createSession,
   getCurrentUser,
+  getSessionIdFromRequest,
+  deleteSessionsForUser,
   destroySession,
   clearSessionCookie,
 }

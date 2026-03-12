@@ -1,17 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatDistanceToNow } from "date-fns"
 import { useCalendar } from "../contexts/CalendarContext"
 import {
+  changePassword,
+  deleteAccount,
+  generateRecoveryKit,
   getAccountSession,
+  getAccountSettings,
   loadAccountPlanner,
+  recoverAccount,
   registerAccount,
   RevisionConflictError,
   saveAccountPlanner,
   signIn,
   signOut,
+  signOutOtherSessions,
 } from "../lib/account"
 
 type SyncPhase = "offline" | "checking" | "needs-choice" | "idle" | "saving" | "saved" | "loading" | "error"
+type AuthMode = "signin" | "register" | "recover"
 
 const SaveLoadData: React.FC = () => {
   const {
@@ -37,10 +44,20 @@ const SaveLoadData: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [syncPhase, setSyncPhase] = useState<SyncPhase>("checking")
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
-  const [authMode, setAuthMode] = useState<"signin" | "register">("register")
+  const [authMode, setAuthMode] = useState<AuthMode>("register")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [recoveryCode, setRecoveryCode] = useState("")
   const [authBusy, setAuthBusy] = useState(false)
+  const [settingsBusy, setSettingsBusy] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [nextPassword, setNextPassword] = useState("")
+  const [recoveryPassword, setRecoveryPassword] = useState("")
+  const [deletePassword, setDeletePassword] = useState("")
+  const [accountCreatedAt, setAccountCreatedAt] = useState<string>("")
+  const [recoveryCodesGeneratedAt, setRecoveryCodesGeneratedAt] = useState<string>("")
+  const [activeRecoveryCodes, setActiveRecoveryCodes] = useState(0)
+  const [recoveryCodesPreview, setRecoveryCodesPreview] = useState<string[]>([])
 
   const cloudUpdatedAt = plannerData.sync.cloudUpdatedAt
   const cloudRevision = plannerData.sync.revision
@@ -82,6 +99,18 @@ const SaveLoadData: React.FC = () => {
     }
   }, [autoSyncEnabled, syncPhase])
 
+  const refreshSettings = useCallback(async () => {
+    if (!isAuthenticated) return
+    try {
+      const account = await getAccountSettings()
+      setAccountCreatedAt(account.createdAt || "")
+      setRecoveryCodesGeneratedAt(account.recoveryCodesGeneratedAt || "")
+      setActiveRecoveryCodes(account.activeRecoveryCodes || 0)
+    } catch {
+      // non-fatal; session still governs access
+    }
+  }, [isAuthenticated])
+
   const handleRemoteLoaded = (result: Awaited<ReturnType<typeof loadAccountPlanner>>, emailForSync: string) => {
     replacePlannerData({
       ...result.plannerData,
@@ -102,6 +131,9 @@ const SaveLoadData: React.FC = () => {
       const authenticated = Boolean(session.authenticated && session.user?.email)
       setIsAuthenticated(authenticated)
       setSessionEmail(session.user?.email || "")
+      setAccountCreatedAt(session.user?.createdAt || "")
+      setRecoveryCodesGeneratedAt(session.user?.recoveryCodesGeneratedAt || "")
+      setActiveRecoveryCodes(session.user?.activeRecoveryCodes || 0)
 
       if (!authenticated) {
         setAutoSyncEnabled(false)
@@ -165,6 +197,12 @@ const SaveLoadData: React.FC = () => {
   }, [])
 
   useEffect(() => {
+    if (isAuthenticated) {
+      refreshSettings()
+    }
+  }, [isAuthenticated, refreshSettings])
+
+  useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true
       return
@@ -209,6 +247,18 @@ const SaveLoadData: React.FC = () => {
     }
   }, [autoSyncEnabled, hasUnsyncedChanges, isAuthenticated, markSynced, plannerData, setSyncState])
 
+  const downloadTextFile = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }
+
   const handleDownload = () => {
     const blob = new Blob([exportPlannerData()], { type: "application/json" })
     const url = URL.createObjectURL(blob)
@@ -220,6 +270,25 @@ const SaveLoadData: React.FC = () => {
     document.body.removeChild(anchor)
     URL.revokeObjectURL(url)
     setStatusMessage("Downloaded a full planner backup.")
+  }
+
+  const handleCloudBackupDownload = async () => {
+    try {
+      const record = await loadAccountPlanner()
+      downloadTextFile(JSON.stringify(record.plannerData, null, 2), `year-planner-cloud-${plannerData.selectedYear}.json`)
+      setStatusMessage("Downloaded the latest cloud-backed planner export.")
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not download cloud backup.")
+    }
+  }
+
+  const handleDownloadRecoveryKit = () => {
+    if (!recoveryCodesPreview.length) return
+    downloadTextFile(
+      `Year Planner Online recovery kit\nGenerated: ${new Date().toISOString()}\n\nStore these somewhere safe. Each code works once to reset your password.\n\n${recoveryCodesPreview.join("\n")}`,
+      `year-planner-recovery-kit-${new Date().toISOString().split("T")[0]}.txt`
+    )
+    setStatusMessage("Downloaded your recovery kit. Keep it somewhere private.")
   }
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -278,6 +347,14 @@ const SaveLoadData: React.FC = () => {
     }
   }
 
+  const finishSignedInState = async (sessionEmailValue: string, session: Awaited<ReturnType<typeof getAccountSession>> | any) => {
+    setIsAuthenticated(true)
+    setSessionEmail(sessionEmailValue)
+    setAccountCreatedAt(session.user?.createdAt || "")
+    setRecoveryCodesGeneratedAt(session.user?.recoveryCodesGeneratedAt || "")
+    setActiveRecoveryCodes(session.user?.activeRecoveryCodes || 0)
+  }
+
   const handleAuthSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setAuthBusy(true)
@@ -287,8 +364,7 @@ const SaveLoadData: React.FC = () => {
       if (authMode === "register") {
         const session = await registerAccount(email, password, plannerData)
         const nextEmail = session.user?.email || email
-        setIsAuthenticated(true)
-        setSessionEmail(nextEmail)
+        await finishSignedInState(nextEmail, session)
         markSynced({
           accountEmail: nextEmail,
           revision: session.planner?.revision ?? 1,
@@ -297,10 +373,9 @@ const SaveLoadData: React.FC = () => {
         setAutoSyncEnabled(true)
         setSyncPhase("saved")
         setStatusMessage("Account created. This browser planner is now claimed by your account and ready to sync.")
-      } else {
+      } else if (authMode === "signin") {
         const session = await signIn(email, password)
-        setIsAuthenticated(true)
-        setSessionEmail(session.user?.email || email)
+        await finishSignedInState(session.user?.email || email, session)
 
         const serverRevision = session.planner?.revision ?? null
         const localRevision = plannerData.sync.accountEmail === (session.user?.email || email) ? plannerData.sync.revision : null
@@ -324,6 +399,14 @@ const SaveLoadData: React.FC = () => {
         } else {
           await pullCloudToLocal("Signed in and loaded the latest cloud revision.")
         }
+      } else {
+        const session = await recoverAccount(email, recoveryCode, password)
+        await finishSignedInState(session.user?.email || email, session)
+        setSyncState({ accountEmail: session.user?.email || email })
+        setAutoSyncEnabled(true)
+        setSyncPhase("idle")
+        setStatusMessage("Account recovered. You’re signed back in with a fresh password.")
+        setRecoveryCode("")
       }
 
       setPassword("")
@@ -340,6 +423,10 @@ const SaveLoadData: React.FC = () => {
       await signOut()
       setIsAuthenticated(false)
       setSessionEmail("")
+      setAccountCreatedAt("")
+      setRecoveryCodesGeneratedAt("")
+      setActiveRecoveryCodes(0)
+      setRecoveryCodesPreview([])
       setAutoSyncEnabled(false)
       clearSyncState()
       setSyncPhase("offline")
@@ -349,12 +436,73 @@ const SaveLoadData: React.FC = () => {
     }
   }
 
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSettingsBusy(true)
+    try {
+      const message = await changePassword(currentPassword, nextPassword)
+      setCurrentPassword("")
+      setNextPassword("")
+      setStatusMessage(message)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not change password.")
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
+  const handleGenerateRecoveryKit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSettingsBusy(true)
+    try {
+      const result = await generateRecoveryKit(recoveryPassword)
+      setRecoveryPassword("")
+      setRecoveryCodesPreview(result.recoveryCodes)
+      setRecoveryCodesGeneratedAt(result.recoveryCodesGeneratedAt)
+      setActiveRecoveryCodes(result.activeRecoveryCodes)
+      setStatusMessage(result.message)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not generate recovery kit.")
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
+  const handleSignOutOtherSessions = async () => {
+    setSettingsBusy(true)
+    try {
+      const message = await signOutOtherSessions()
+      setStatusMessage(message)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not sign out other sessions.")
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
+  const handleDeleteAccount = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!window.confirm("Delete your account and cloud planner? Your local browser copy will remain until you reset it.")) return
+    setSettingsBusy(true)
+    try {
+      const message = await deleteAccount(deletePassword)
+      setDeletePassword("")
+      setRecoveryCodesPreview([])
+      await handleSignOut()
+      setStatusMessage(message)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not delete account.")
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
   return (
     <section className="panel save-panel">
       <div className="panel-heading-row save-header-stack">
         <div>
-          <p className="section-kicker">Backup & sync</p>
-          <h2>Keep local speed, add calmer account-backed sync</h2>
+          <p className="section-kicker">Backup, sync & account</p>
+          <h2>Keep local speed, add safer account-backed continuity</h2>
         </div>
         <div className={`sync-pill sync-${syncPhase}`}>
           <span className="sync-dot" />
@@ -369,7 +517,13 @@ const SaveLoadData: React.FC = () => {
             <>
               <p>
                 Signed in as <strong>{sessionEmail}</strong>. The browser stays fast, while the server keeps the authoritative cloud
-                revision for your account. No database secrets ever reach the client.
+                revision for your account.
+              </p>
+              <p className="mini-note account-meta-line">
+                {accountCreatedAt ? `Account opened ${formatDistanceToNow(new Date(accountCreatedAt), { addSuffix: true })}. ` : ""}
+                {activeRecoveryCodes > 0
+                  ? `${activeRecoveryCodes} recovery code${activeRecoveryCodes === 1 ? "" : "s"} ready for self-serve recovery.`
+                  : "No recovery kit saved yet."}
               </p>
               <div className="action-row wrap">
                 <button className="primary-button" onClick={() => pushLocalToCloud()}>
@@ -381,6 +535,9 @@ const SaveLoadData: React.FC = () => {
                 <button className="ghost-button" onClick={() => setAutoSyncEnabled((current) => !current)}>
                   {autoSyncEnabled ? "Pause auto-sync" : "Resume auto-sync"}
                 </button>
+                <button className="ghost-button" onClick={handleCloudBackupDownload}>
+                  Download cloud backup
+                </button>
                 <button className="ghost-button danger" onClick={handleSignOut}>
                   Sign out
                 </button>
@@ -389,8 +546,8 @@ const SaveLoadData: React.FC = () => {
           ) : (
             <>
               <p>
-                Stay local if you want. If you want cross-device continuity, create a lightweight account and claim one personal
-                planner with email, password, and a server-side session cookie.
+                Stay local if you want. If you want cross-device continuity, create an account and claim one personal planner with
+                email, password, and a server-side session cookie.
               </p>
               <div className="segmented-control auth-mode-toggle">
                 <button className={`segment${authMode === "register" ? " active" : ""}`} onClick={() => setAuthMode("register")}>
@@ -398,6 +555,9 @@ const SaveLoadData: React.FC = () => {
                 </button>
                 <button className={`segment${authMode === "signin" ? " active" : ""}`} onClick={() => setAuthMode("signin")}>
                   Sign in
+                </button>
+                <button className={`segment${authMode === "recover" ? " active" : ""}`} onClick={() => setAuthMode("recover")}>
+                  Recover access
                 </button>
               </div>
               <form className="auth-form" onSubmit={handleAuthSubmit}>
@@ -409,18 +569,44 @@ const SaveLoadData: React.FC = () => {
                   autoComplete="email"
                   required
                 />
+                {authMode === "recover" ? (
+                  <input
+                    value={recoveryCode}
+                    onChange={(event) => setRecoveryCode(event.target.value.toUpperCase())}
+                    placeholder="Recovery code"
+                    autoComplete="one-time-code"
+                    required
+                  />
+                ) : null}
                 <input
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder={authMode === "register" ? "Use at least 10 characters" : "Password"}
-                  autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                  placeholder={
+                    authMode === "register"
+                      ? "Use at least 10 characters"
+                      : authMode === "recover"
+                        ? "Choose a new password"
+                        : "Password"
+                  }
+                  autoComplete={authMode === "register" || authMode === "recover" ? "new-password" : "current-password"}
                   required
                 />
                 <button className="primary-button" type="submit" disabled={authBusy}>
-                  {authBusy ? "Working…" : authMode === "register" ? "Create account & claim this planner" : "Sign in"}
+                  {authBusy
+                    ? "Working…"
+                    : authMode === "register"
+                      ? "Create account & claim this planner"
+                      : authMode === "recover"
+                        ? "Reset password with recovery code"
+                        : "Sign in"}
                 </button>
               </form>
+              {authMode === "recover" ? (
+                <p className="mini-note">
+                  Recovery codes are one-time use. Generate a fresh kit from account settings after you get back in.
+                </p>
+              ) : null}
             </>
           )}
         </div>
@@ -430,8 +616,8 @@ const SaveLoadData: React.FC = () => {
           <p>{storageSummary}</p>
           <p>{cloudSummary}</p>
           <p>
-            Local edits always save immediately in this browser. Cloud sync only layers on top, so the app stays usable offline
-            and doesn&apos;t panic over timestamps alone.
+            Local edits always save immediately in this browser. Cloud sync layers on top, so the app stays usable offline and
+            does not panic over timestamps alone.
           </p>
           {isAuthenticated ? (
             <p className="mini-note">
@@ -487,6 +673,87 @@ const SaveLoadData: React.FC = () => {
           </div>
           <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileChange} />
         </div>
+
+        {isAuthenticated ? (
+          <div className="summary-card account-settings-card">
+            <strong>Account settings</strong>
+            <p>Change your password, create a new self-serve recovery kit, or sign out any other devices.</p>
+            <form className="stack-grid" onSubmit={handleChangePassword}>
+              <label className="field-label">
+                Current password
+                <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+              </label>
+              <label className="field-label">
+                New password
+                <input type="password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} required />
+              </label>
+              <button className="primary-button" type="submit" disabled={settingsBusy}>
+                Update password
+              </button>
+            </form>
+            <button className="ghost-button" onClick={handleSignOutOtherSessions} disabled={settingsBusy}>
+              Sign out other sessions
+            </button>
+          </div>
+        ) : null}
+
+        {isAuthenticated ? (
+          <div className="summary-card account-settings-card">
+            <strong>Recovery kit</strong>
+            <p>
+              If you ever forget your password, these one-time codes let you reset it yourself without support. Generate a new kit
+              whenever you want to replace the old one.
+            </p>
+            <p className="mini-note">
+              {recoveryCodesGeneratedAt
+                ? `Latest kit generated ${formatDistanceToNow(new Date(recoveryCodesGeneratedAt), { addSuffix: true })}.`
+                : "No recovery kit generated yet."}
+            </p>
+            <form className="stack-grid" onSubmit={handleGenerateRecoveryKit}>
+              <label className="field-label">
+                Confirm your password
+                <input type="password" value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} required />
+              </label>
+              <button className="primary-button" type="submit" disabled={settingsBusy}>
+                Generate fresh recovery kit
+              </button>
+            </form>
+            {recoveryCodesPreview.length ? (
+              <div className="recovery-preview-card">
+                <strong>Save these now — they are only shown once</strong>
+                <div className="recovery-code-list">
+                  {recoveryCodesPreview.map((code) => (
+                    <code key={code}>{code}</code>
+                  ))}
+                </div>
+                <div className="action-row wrap">
+                  <button className="ghost-button" onClick={handleDownloadRecoveryKit}>
+                    Download recovery kit
+                  </button>
+                  <button className="ghost-button" onClick={() => setRecoveryCodesPreview([])}>
+                    I saved them
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {isAuthenticated ? (
+          <div className="summary-card account-settings-card danger-zone-card">
+            <strong>Danger zone</strong>
+            <p>Delete your hosted account and cloud planner. Your local browser copy stays until you reset this device.</p>
+            <form className="stack-grid" onSubmit={handleDeleteAccount}>
+              <label className="field-label">
+                Confirm password
+                <input type="password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} required />
+              </label>
+              <button className="ghost-button danger" type="submit" disabled={settingsBusy}>
+                Delete account
+              </button>
+            </form>
+          </div>
+        ) : null}
       </div>
 
       <div className="summary-card snapshots-card">
@@ -513,8 +780,8 @@ const SaveLoadData: React.FC = () => {
       </div>
 
       <p className="footer-note">
-        Best default: let browser autosave handle day-to-day editing, use account sync for continuity, and keep occasional JSON
-        exports for portable backups you control.
+        Best default: let browser autosave handle day-to-day editing, use account sync for continuity, keep occasional JSON exports,
+        and save a recovery kit somewhere private.
       </p>
     </section>
   )
