@@ -27,13 +27,8 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
   }
 
   useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    const handleGlobalTouchEnd = () => {
-      setIsDragging(false)
-    }
+    const handleGlobalMouseUp = () => setIsDragging(false)
+    const handleGlobalTouchEnd = () => setIsDragging(false)
 
     document.addEventListener("mouseup", handleGlobalMouseUp)
     document.addEventListener("touchend", handleGlobalTouchEnd)
@@ -57,7 +52,6 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
       const updatedCell = { ...currentCell }
       delete updatedCell.customText
 
-      // If the cell has no other properties, remove it entirely
       if (Object.keys(updatedCell).length === 0) {
         newDateCells.delete(dateKey)
       } else {
@@ -70,7 +64,7 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
 
   const getAdjustedDayOfWeek = (date: Date): number => {
     const day = getDay(date)
-    return day === 0 ? 6 : day - 1 // Sunday becomes 6, Monday becomes 0
+    return day === 0 ? 6 : day - 1
   }
 
   const getWeeksForMonth = (month: number): Date[][] => {
@@ -85,7 +79,6 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
       const dayOfWeek = getAdjustedDayOfWeek(day)
       currentWeek[dayOfWeek] = day
 
-      // If we've filled a complete week (Sunday), start a new week
       if (dayOfWeek === 6) {
         weeks.push([...currentWeek])
         currentWeek = new Array(7).fill(null)
@@ -99,87 +92,65 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
     return weeks
   }
 
-  const getMonthName = (month: number): string => {
-    return format(new Date(selectedYear, month, 1), "MMMM")
-  }
-
   const months = Array.from({ length: 12 }, (_, i) => i)
 
   return (
     <div
       style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "20px",
-        justifyContent: "center",
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: "18px",
         maxWidth: "100%",
-        overflow: "hidden",
-        padding: "10px",
+        padding: "4px",
       }}
     >
       {months.map((month) => {
         const weeks = getWeeksForMonth(month)
-        const monthName = getMonthName(month)
+        const monthName = format(new Date(selectedYear, month, 1), "MMMM")
 
         return (
-          <div
+          <section
             key={month}
             style={{
-              border: `2px solid ${UI_COLORS.border.primary}`,
-              borderRadius: "8px",
+              border: `1px solid ${UI_COLORS.border.secondary}`,
+              borderRadius: "22px",
               overflow: "hidden",
-              backgroundColor: UI_COLORS.background.primary,
-              minWidth: "280px",
-              maxWidth: "400px",
-              flex: "0 1 auto",
-              width: "100%",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(248,250,255,0.88))",
+              boxShadow: "0 12px 28px rgba(15,23,42,0.07)",
+              minWidth: 0,
             }}
           >
-            {/* Month header */}
             <div
               style={{
-                backgroundColor: UI_COLORS.background.secondary,
-                padding: "12px",
+                padding: "14px 16px 12px",
                 textAlign: "center",
-                borderBottom: `2px solid ${UI_COLORS.border.primary}`,
-                fontWeight: "bold",
-                fontSize: "18px",
+                borderBottom: `1px solid ${UI_COLORS.border.secondary}`,
+                fontWeight: 700,
+                fontSize: "17px",
+                letterSpacing: "-0.02em",
+                backgroundColor: UI_COLORS.background.secondary,
               }}
             >
               {monthName}
             </div>
 
-            {/* Calendar grid */}
-            <div
-              style={{
-                width: "100%",
-                overflow: "hidden",
-              }}
-            >
-              <table
-                style={{
-                  borderCollapse: "collapse",
-                  width: "100%",
-                  tableLayout: "fixed",
-                }}
-              >
+            <div style={{ width: "100%", overflow: "hidden", padding: "8px" }}>
+              <table style={{ width: "100%", tableLayout: "fixed" }}>
                 <thead>
                   <tr>
                     {dayNames.map((dayName) => (
                       <th
                         key={dayName}
                         style={{
-                          padding: "4px 2px",
+                          padding: "6px 2px 10px",
                           textAlign: "center",
-                          fontWeight: "bold",
-                          fontSize: "11px",
-                          borderBottom: `1px solid ${UI_COLORS.border.secondary}`,
-                          backgroundColor: UI_COLORS.background.tertiary,
-                          width: "14.28%", // 100% / 7 days
-                          maxWidth: "14.28%",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          fontWeight: 700,
+                          fontSize: "10px",
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: UI_COLORS.text.secondary,
+                          backgroundColor: "transparent",
+                          width: "14.28%",
                         }}
                       >
                         {dayName}
@@ -197,13 +168,11 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
                               key={dayIndex}
                               style={{
                                 padding: "0",
-                                textAlign: "center",
-                                verticalAlign: "middle",
                                 border: `1px solid ${UI_COLORS.border.tertiary}`,
                                 width: "14.28%",
-                                maxWidth: "14.28%",
-                                height: "40px",
-                                overflow: "visible",
+                                height: "44px",
+                                borderRadius: "10px",
+                                backgroundColor: "rgba(245,247,251,0.85)",
                               }}
                             />
                           )
@@ -220,12 +189,9 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
                             key={dayIndex}
                             style={{
                               padding: "0",
-                              textAlign: "center",
-                              verticalAlign: "middle",
                               border: `1px solid ${UI_COLORS.border.tertiary}`,
                               width: "14.28%",
-                              maxWidth: "14.28%",
-                              height: "40px",
+                              height: "44px",
                               overflow: "visible",
                             }}
                           >
@@ -247,7 +213,7 @@ const ClassicView: React.FC<ClassicViewProps> = ({ selectedYear, dateCells, setD
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         )
       })}
     </div>

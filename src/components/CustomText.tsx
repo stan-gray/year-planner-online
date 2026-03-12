@@ -40,7 +40,6 @@ const CustomText: React.FC<CustomTextProps> = ({
     } else if (e.key === "Escape") {
       setIsEditing(false)
       setEditText(text)
-      // If we're canceling empty text, remove it completely
       if (text === "") {
         onTextChange("")
       }
@@ -50,7 +49,6 @@ const CustomText: React.FC<CustomTextProps> = ({
   useEffect(() => {
     if (isEditing && textRef.current) {
       textRef.current.focus()
-      // Place cursor at the end
       const range = document.createRange()
       const selection = window.getSelection()
       range.selectNodeContents(textRef.current)
@@ -60,12 +58,10 @@ const CustomText: React.FC<CustomTextProps> = ({
     }
   }, [isEditing])
 
-  // Update edit text when text prop changes
   useEffect(() => {
     setEditText(text)
   }, [text])
 
-  // Start editing immediately if text is empty (new custom text)
   useEffect(() => {
     if (text === "" && !isEditing) {
       setIsEditing(true)
@@ -81,9 +77,10 @@ const CustomText: React.FC<CustomTextProps> = ({
           wordWrap: "break-word",
           wordBreak: "break-word",
           position: "absolute",
-          top: "0",
-          left: "0",
-          minWidth: "96%",
+          top: "1px",
+          left: "1px",
+          right: "1px",
+          minWidth: "calc(100% - 2px)",
           zIndex: isEditing ? 10 : 1,
         }
       case "no-overflow":
@@ -93,9 +90,9 @@ const CustomText: React.FC<CustomTextProps> = ({
           textOverflow: "ellipsis",
           position: "absolute",
           top: "50%",
-          left: "8px",
+          left: "6px",
+          right: "6px",
           transform: "translateY(-50%)",
-          minWidth: "100%",
           zIndex: isEditing ? 10 : 1,
         }
       case "overflow-x":
@@ -105,14 +102,13 @@ const CustomText: React.FC<CustomTextProps> = ({
           overflow: "visible",
           position: "absolute",
           top: "50%",
-          left: "8px",
+          left: "6px",
           transform: "translateY(-50%)",
           zIndex: isEditing ? 10 : 1,
         }
     }
   }
 
-  // Don't render anything if text is empty and not editing
   if (text === "" && !isEditing) {
     return null
   }
@@ -132,16 +128,18 @@ const CustomText: React.FC<CustomTextProps> = ({
         handleKeyPress(e)
       }}
       style={{
-        fontSize: "18px",
-        fontWeight: "bold",
+        fontSize: "13px",
+        lineHeight: 1.15,
+        fontWeight: 700,
+        letterSpacing: "-0.01em",
         color: UI_COLORS.text.primary,
         backgroundColor: backgroundColor,
-        padding: "3px",
-        borderRadius: "2px",
+        padding: "3px 6px",
+        borderRadius: "8px",
         cursor: isEditing ? "text" : "pointer",
         outline: "none",
-        border: isEditing ? `1px solid ${UI_COLORS.button.primary.normal}` : "none",
-        boxShadow: isEditing ? "0 0 5px rgba(0,123,255,0.3)" : "none",
+        border: isEditing ? `1px solid ${UI_COLORS.button.primary.normal}` : "1px solid rgba(255,255,255,0.2)",
+        boxShadow: isEditing ? "0 0 0 4px rgba(47,91,234,0.14)" : "0 1px 0 rgba(255,255,255,0.35)",
         minHeight: "20px",
         ...getOverflowStyles(),
       }}

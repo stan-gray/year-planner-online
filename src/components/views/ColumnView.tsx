@@ -25,13 +25,8 @@ const ColumnView: React.FC<ColumnViewProps> = ({ selectedYear, dateCells, setDat
   }
 
   useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    const handleGlobalTouchEnd = () => {
-      setIsDragging(false)
-    }
+    const handleGlobalMouseUp = () => setIsDragging(false)
+    const handleGlobalTouchEnd = () => setIsDragging(false)
 
     document.addEventListener("mouseup", handleGlobalMouseUp)
     document.addEventListener("touchend", handleGlobalTouchEnd)
@@ -55,7 +50,6 @@ const ColumnView: React.FC<ColumnViewProps> = ({ selectedYear, dateCells, setDat
       const updatedCell = { ...currentCell }
       delete updatedCell.customText
 
-      // If the cell has no other properties, remove it entirely
       if (Object.keys(updatedCell).length === 0) {
         newDateCells.delete(dateKey)
       } else {
@@ -72,49 +66,39 @@ const ColumnView: React.FC<ColumnViewProps> = ({ selectedYear, dateCells, setDat
     return eachDayOfInterval({ start: startDate, end: endDate })
   }
 
-  const getMonthName = (month: number): string => {
-    return format(new Date(selectedYear, month, 1), "MMMM")
-  }
-
-  const getMaxDaysInYear = (): number => {
-    return Math.max(...Array.from({ length: 12 }, (_, i) => getDaysForMonth(i).length))
-  }
-
   const months = Array.from({ length: 12 }, (_, i) => i)
-  const maxDays = getMaxDaysInYear()
+  const maxDays = Math.max(...Array.from({ length: 12 }, (_, i) => getDaysForMonth(i).length))
 
   return (
-    <div
-      style={{
-        width: "100%",
-        overflowX: "auto",
-        WebkitOverflowScrolling: "touch",
-      }}
-    >
+    <div style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       <table
         style={{
-          borderCollapse: "collapse",
           width: "100%",
-          minWidth: "800px",
-          border: `2px solid ${UI_COLORS.border.primary}`,
+          minWidth: "980px",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.88), rgba(248,250,255,0.82))",
+          border: `1px solid ${UI_COLORS.border.secondary}`,
+          borderRadius: "22px",
+          overflow: "hidden",
         }}
       >
         <thead>
-          <tr style={{ borderBottom: `2px solid ${UI_COLORS.border.primary}` }}>
+          <tr>
             {months.map((month) => (
               <th
                 key={month}
                 style={{
-                  padding: "12px 8px",
+                  padding: "14px 8px",
                   textAlign: "center",
-                  fontWeight: "bold",
-                  fontSize: "16px",
+                  fontWeight: 700,
+                  fontSize: "14px",
+                  letterSpacing: "-0.02em",
                   borderRight: `1px solid ${UI_COLORS.border.secondary}`,
+                  borderBottom: `1px solid ${UI_COLORS.border.secondary}`,
                   backgroundColor: UI_COLORS.background.secondary,
-                  width: `${100 / 12}%`, // Equal width for all columns
+                  width: `${100 / 12}%`,
                 }}
               >
-                {getMonthName(month)}
+                {format(new Date(selectedYear, month, 1), "MMM")}
               </th>
             ))}
           </tr>
@@ -132,11 +116,9 @@ const ColumnView: React.FC<ColumnViewProps> = ({ selectedYear, dateCells, setDat
                       key={month}
                       style={{
                         padding: "0",
-                        textAlign: "center",
-                        verticalAlign: "middle",
                         border: `1px solid ${UI_COLORS.border.tertiary}`,
                         height: "40px",
-                        backgroundColor: UI_COLORS.background.tertiary,
+                        backgroundColor: "rgba(244,246,250,0.78)",
                       }}
                     />
                   )
@@ -153,8 +135,6 @@ const ColumnView: React.FC<ColumnViewProps> = ({ selectedYear, dateCells, setDat
                     key={month}
                     style={{
                       padding: "0",
-                      textAlign: "center",
-                      verticalAlign: "middle",
                       border: `1px solid ${UI_COLORS.border.tertiary}`,
                       height: "40px",
                     }}

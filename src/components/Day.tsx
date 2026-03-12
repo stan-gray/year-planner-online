@@ -41,9 +41,7 @@ const Day: React.FC<DayProps> = ({
     const color = COLORS[colorTextureCode as keyof typeof COLORS]
     if (!color) return UI_COLORS.background.primary
 
-    // Apply hover effect for colors
     if (isHovered) {
-      // Parse OKLCH values and increase lightness slightly for hover
       const match = color.match(/oklch\(([^)]+)\)/)
       if (match) {
         const values = match[1].split(" ")
@@ -51,7 +49,7 @@ const Day: React.FC<DayProps> = ({
           const L = parseFloat(values[0])
           const C = parseFloat(values[1])
           const H = values[2]
-          const hoverL = Math.min(0.99, L * 1.01)
+          const hoverL = Math.min(0.99, L * 0.985)
           const hoverC = C * 1.02
           return `oklch(${hoverL.toFixed(3)} ${hoverC.toFixed(3)} ${H})`
         }
@@ -98,7 +96,6 @@ const Day: React.FC<DayProps> = ({
   const handleCustomTextChange = (text: string) => {
     if (onCustomTextChange) {
       onCustomTextChange(text)
-      // If text is empty and we're creating, stop creating mode
       if (text.trim().length === 0) {
         setIsCreatingCustomText(false)
       }
@@ -132,22 +129,24 @@ const Day: React.FC<DayProps> = ({
       }}
       onPointerLeave={() => setIsHovered(false)}
       style={{
-        padding: "4px",
+        padding: hasCustomText ? "1px" : "4px",
         textAlign: "center",
         width: "100%",
         height: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "14px",
-        fontWeight: "normal",
+        fontSize: "13px",
+        fontWeight: 600,
+        color: UI_COLORS.text.primary,
         backgroundColor: getBackgroundColor(),
         position: "relative",
         cursor: "cell",
-        transition: "background-color 0.2s ease",
+        transition: "background-color 0.2s ease, box-shadow 0.2s ease",
         overflow: "visible",
         userSelect: "none",
-        border: isToday(date) ? `2px inset ${UI_COLORS.border.inset}` : "none",
+        border: isToday(date) ? `1.5px solid ${UI_COLORS.border.inset}` : "none",
+        boxShadow: isToday(date) ? "inset 0 0 0 1px rgba(255,255,255,0.65)" : "inset 0 1px 0 rgba(255,255,255,0.16)",
         boxSizing: "border-box",
         touchAction: "auto",
         ...getTextureStyles(),
@@ -166,23 +165,24 @@ const Day: React.FC<DayProps> = ({
           onClick={handleDayNumberClick}
           style={{
             cursor: onCustomTextChange ? "text" : "default",
-            padding: "2px 4px",
-            borderRadius: "3px",
-            transition: "all 0.2s ease",
+            padding: "2px 5px",
+            borderRadius: "999px",
+            transition: "all 0.18s ease",
             display: "inline-block",
             pointerEvents: "auto",
             fontSize: "inherit",
             lineHeight: "1",
+            color: isWeekend(date) ? UI_COLORS.text.secondary : UI_COLORS.text.primary,
           }}
           onMouseEnter={(e) => {
             if (onCustomTextChange) {
-              e.currentTarget.style.fontWeight = "bold"
+              e.currentTarget.style.fontWeight = "700"
               e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.7)"
             }
           }}
           onMouseLeave={(e) => {
             if (onCustomTextChange) {
-              e.currentTarget.style.fontWeight = "normal"
+              e.currentTarget.style.fontWeight = "600"
               e.currentTarget.style.backgroundColor = "transparent"
             }
           }}

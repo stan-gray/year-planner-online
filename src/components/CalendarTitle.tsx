@@ -10,15 +10,15 @@ const CalendarTitle: React.FC = () => {
     <div className="planner-hero">
       <div>
         <p className="eyebrow">Annual planner</p>
-        <h1>Plan the year like it’s a real system, not a blank grid.</h1>
+        <h1>Design the year with more clarity, less noise.</h1>
         <p className="hero-copy">
-          Paint important dates, map quarterly goals, set monthly themes, and keep your plan backed up locally with
-          exportable snapshots.
+          Map priorities, mark time visually, and keep the whole year readable at a glance — with local-first backups and
+          calm, structured planning surfaces that don&apos;t fight you.
         </p>
       </div>
 
       <label className="year-pill">
-        <span>Year</span>
+        <span>Planner year</span>
         <select value={selectedYear} onChange={(event) => setSelectedYear(parseInt(event.target.value, 10))}>
           {yearOptions.map((yearOption) => (
             <option key={yearOption} value={yearOption}>
