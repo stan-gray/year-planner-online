@@ -44,3 +44,11 @@ services:
       - "3000:80"
 ```
 
+
+
+## GitHub Pages deployment
+
+This fork is configured to deploy automatically to GitHub Pages via GitHub Actions.
+After push, the public app should be available at:
+
+`https://stan-gray.github.io/year-planner-online/`
